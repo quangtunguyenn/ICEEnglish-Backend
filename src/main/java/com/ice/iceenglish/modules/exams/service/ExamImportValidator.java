@@ -52,13 +52,21 @@ public class ExamImportValidator {
             return new Report(errors, warnings);
         }
 
-        if (isBlank(dto.getExamTitle())) {
+        String examTitle = dto.getExamTitle();
+        if (isBlank(examTitle) && dto.getExam() != null) {
+            examTitle = dto.getExam().getTitle();
+        }
+        if (isBlank(examTitle)) {
             errors.add("exam_title: bắt buộc.");
-        } else if (dto.getExamTitle().trim().length() > MAX_NAME_LENGTH) {
+        } else if (examTitle.trim().length() > MAX_NAME_LENGTH) {
             errors.add("exam_title: tối đa " + MAX_NAME_LENGTH + " ký tự.");
         }
 
-        if (dto.getDurationMinutes() != null && dto.getDurationMinutes() < 1) {
+        Integer duration = dto.getDurationMinutes();
+        if (duration == null && dto.getExam() != null) {
+            duration = dto.getExam().getDurationMinutes();
+        }
+        if (duration != null && duration < 1) {
             errors.add("duration_minutes: phải >= 1 (hoặc bỏ trống nếu không giới hạn).");
         }
 
@@ -165,8 +173,8 @@ public class ExamImportValidator {
             }
         }
 
-        Map<String, String> options = q.getOptions();
-        if (options == null) {
+        Map<String, String> options = normalizedOptions(q);
+        if (options.isEmpty()) {
             errors.add(path + ".options: bắt buộc (đủ A, B, C, D).");
         } else {
             for (String key : OPTION_KEYS) {
@@ -186,6 +194,18 @@ public class ExamImportValidator {
         } else if (!OPTION_KEYS.contains(q.getCorrectOption().trim())) {
             errors.add(path + ".correct_option: '" + q.getCorrectOption() + "' không hợp lệ (A, B, C hoặc D).");
         }
+    }
+
+    private Map<String, String> normalizedOptions(ExamImportDto.QuestionImport q) {
+        if (q.getOptions() != null) {
+            return q.getOptions();
+        }
+        Map<String, String> options = new java.util.LinkedHashMap<>();
+        options.put("A", q.getOptA());
+        options.put("B", q.getOptB());
+        options.put("C", q.getOptC());
+        options.put("D", q.getOptD());
+        return options;
     }
 
     /** Số trong "(n) ____" của passage phải khớp order_index của các câu hỏi trong phần cloze. */

@@ -18,7 +18,7 @@ import com.ice.iceenglish.modules.exams.exception.ExamImportException;
 import com.ice.iceenglish.modules.exams.exception.NotFoundException;
 import com.ice.iceenglish.modules.exams.repository.ExamPartRepository;
 import com.ice.iceenglish.modules.exams.repository.ExamRepository;
-import com.ice.iceenglish.modules.learning.entity.Video;
+import com.ice.iceenglish.modules.videos.entity.Video;
 import com.ice.iceenglish.modules.videos.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -51,21 +51,54 @@ public class ExamService {
      * giáo viên xem preview rồi mới publish.
      */
     @Transactional
-    public ExamImportResponseDto importExam(MultipartFile file, ExamType examType, UUID videoId,
+    public ExamImportResponseDto importExam(MultipartFile file, ExamType examType,
                                             boolean answersRevealed, String createdBy) {
         ExamImportDto dto = parse(file);
 
         ExamImportValidator.Report report = importValidator.validate(dto);
         List<String> errors = new ArrayList<>(report.errors());
+        ExamType effectiveExamType = examType;
+        if (effectiveExamType == null && dto.getExam() != null
+                && dto.getExam().getExamType() != null) {
+            try {
+                effectiveExamType = ExamType.valueOf(dto.getExam().getExamType().trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                errors.add("exam.exam_type: giá trị không hợp lệ.");
+            }
+        }
+        if (effectiveExamType == null) {
+            errors.add("examType: bắt buộc (hoặc khai báo exam.exam_type trong JSON).");
+        }
+        String jsonExamType = dto.getExam() != null ? dto.getExam().getExamType() : null;
+        if (effectiveExamType != null && jsonExamType != null
+                && !effectiveExamType.name().equalsIgnoreCase(jsonExamType.trim())) {
+            errors.add("exam.exam_type: không khớp với examType trong form upload.");
+        }
+        Integer importedDuration = durationMinutes(dto);
+        if (effectiveExamType == ExamType.MOCK && importedDuration == null) {
+            errors.add("duration_minutes: bắt buộc khi examType là MOCK.");
+        }
+        if (effectiveExamType != ExamType.MOCK && importedDuration != null) {
+            errors.add("duration_minutes: chỉ được khai báo khi examType là MOCK.");
+        }
 
-        Video video = null;
-        if (videoId != null) {
-            if (examType == ExamType.GENERAL_EXAM) {
-                errors.add("video_id: đề thi chung (GENERAL_EXAM) không được gắn với video.");
-            } else {
-                video = videoRepository.findByIdIn(videoId).orElse(null);
-                if (video == null) {
-                    errors.add("video_id: không tìm thấy video " + videoId + ".");
+        if (dto.getParts() != null) {
+            for (int i = 0; i < dto.getParts().size(); i++) {
+                ExamImportDto.PartImport part = dto.getParts().get(i);
+                if (part == null || part.getQuestions() == null) {
+                    continue;
+                }
+                List<ExamImportDto.QuestionImport> questions = part.getQuestions();
+                for (int j = 0; j < questions.size(); j++) {
+                    ExamImportDto.QuestionImport question = questions.get(j);
+                    if (question == null) {
+                        continue;
+                    }
+                    UUID relatedVideoId = question.getRelatedVideoId();
+                    if (relatedVideoId != null && videoRepository.findById(relatedVideoId).isEmpty()) {
+                        errors.add("parts[" + i + "].questions[" + j
+                                + "].related_video_id: không tìm thấy video.");
+                    }
                 }
             }
         }
@@ -75,12 +108,13 @@ public class ExamService {
         }
 
         Exam exam = Exam.builder()
-                .title(dto.getExamTitle().trim())
-                .examType(examType)
+                .title(examTitle(dto).trim())
+                .examType(effectiveExamType)
                 .status(ExamStatus.DRAFT)
-                .durationMinutes(dto.getDurationMinutes())
-                .answersRevealed(answersRevealed && examType == ExamType.HOMEWORK)
-                .video(video)
+                .durationMinutes(effectiveExamType == ExamType.MOCK
+                        ? importedDuration : null)
+                .answersRevealed((answersRevealed || answersRevealedInJson(dto))
+                        && effectiveExamType == ExamType.HOMEWORK)
                 .createdBy(createdBy)
                 .build();
 
@@ -95,7 +129,9 @@ public class ExamService {
                     .build();
 
             for (ExamImportDto.QuestionImport q : p.getQuestions()) {
-                Map<String, String> options = q.getOptions();
+                Map<String, String> options = optionsOf(q);
+                Video questionVideo = q.getRelatedVideoId() == null
+                        ? null : videoRepository.findById(q.getRelatedVideoId()).orElse(null);
                 part.addQuestion(Question.builder()
                         .orderIndex(q.getOrderIndex())
                         .content(ExamImportValidator.stripQuestionPrefix(q.getContent()))
@@ -105,7 +141,7 @@ public class ExamService {
                         .optD(options.get("D").trim())
                         .correctOpt(q.getCorrectOption().trim())
                         .explanation(blankToNull(q.getExplanation()))
-                        .relatedVideo(video) // bài tập của video: mặc định ôn lại chính video đó khi làm sai
+                        .relatedVideo(questionVideo)
                         .build());
                 totalQuestions++;
             }
@@ -122,6 +158,31 @@ public class ExamService {
                 .totalQuestions(totalQuestions)
                 .warnings(report.warnings())
                 .build();
+    }
+
+    private static String examTitle(ExamImportDto dto) {
+        return dto.getExamTitle() != null ? dto.getExamTitle() : dto.getExam().getTitle();
+    }
+
+    private static Integer durationMinutes(ExamImportDto dto) {
+        return dto.getDurationMinutes() != null
+                ? dto.getDurationMinutes()
+                : dto.getExam() != null ? dto.getExam().getDurationMinutes() : null;
+    }
+
+    private static boolean answersRevealedInJson(ExamImportDto dto) {
+        return dto.getExam() != null && Boolean.TRUE.equals(dto.getExam().getAnswersRevealed());
+    }
+
+    private static Map<String, String> optionsOf(ExamImportDto.QuestionImport question) {
+        if (question.getOptions() != null) {
+            return question.getOptions();
+        }
+        return Map.of(
+                "A", question.getOptA(),
+                "B", question.getOptB(),
+                "C", question.getOptC(),
+                "D", question.getOptD());
     }
 
     private ExamImportDto parse(MultipartFile file) {
@@ -153,8 +214,23 @@ public class ExamService {
         if (!staff && exam.getStatus() != ExamStatus.PUBLISHED) {
             throw examNotFound(examId);
         }
+
         examPartRepository.fetchQuestionsByExamId(examId);
         return toStudentDto(exam);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ExamResponseDto> listPublishedExams() {
+        return examRepository.findByStatusOrderByCreatedAtDesc(ExamStatus.PUBLISHED).stream()
+                .map(exam -> ExamResponseDto.builder()
+                        .id(exam.getId())
+                        .title(exam.getTitle())
+                        .examType(exam.getExamType())
+                        .durationMinutes(exam.getDurationMinutes())
+                        .answersRevealed(exam.isAnswersRevealed())
+                        .parts(List.of())
+                        .build())
+                .toList();
     }
 
     /** Đề đầy đủ đáp án + lời giải cho giáo viên/admin duyệt, ở mọi trạng thái. */
@@ -203,17 +279,12 @@ public class ExamService {
         return (s == null || s.isBlank()) ? null : s;
     }
 
-    private static UUID videoIdOf(Exam exam) {
-        return exam.getVideo() != null ? exam.getVideo().getId() : null;
-    }
-
     private ExamResponseDto toStudentDto(Exam exam) {
         return ExamResponseDto.builder()
                 .id(exam.getId())
                 .title(exam.getTitle())
                 .examType(exam.getExamType())
                 .durationMinutes(exam.getDurationMinutes())
-                .videoId(videoIdOf(exam))
                 .answersRevealed(exam.isAnswersRevealed())
                 .parts(exam.getParts().stream().map(part -> ExamResponseDto.ExamPartDto.builder()
                         .id(part.getId())
@@ -242,7 +313,6 @@ public class ExamService {
                 .examType(exam.getExamType())
                 .status(exam.getStatus())
                 .durationMinutes(exam.getDurationMinutes())
-                .videoId(videoIdOf(exam))
                 .answersRevealed(exam.isAnswersRevealed())
                 .createdBy(exam.getCreatedBy())
                 .parts(exam.getParts().stream().map(part -> ExamPreviewResponseDto.PartDto.builder()

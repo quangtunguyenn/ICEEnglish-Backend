@@ -1,5 +1,6 @@
 package com.ice.iceenglish.modules.submissions.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import java.util.List;
 import java.util.UUID;
@@ -7,6 +8,8 @@ import java.util.UUID;
 @Data
 public class SubmitExamRequest {
     private UUID submissionId; // Lượt thi đã tạo lúc bấm "Bắt đầu"
+    @JsonProperty("exam_id")
+    private UUID examId;
     private List<UserAnswerDto> answers;
     private List<PartTimeLogDto> partLogs;
 

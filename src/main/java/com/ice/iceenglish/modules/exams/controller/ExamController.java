@@ -34,20 +34,22 @@ public class ExamController {
 
     /**
      * Import đề từ file JSON (multipart/form-data).
-     * Fields: file (bắt buộc), examType (GENERAL_EXAM | HOMEWORK, bắt buộc),
-     * videoId (tùy chọn, chỉ cho HOMEWORK), answersRevealed (tùy chọn, mặc định false).
+     * Fields: file (bắt buộc), examType (GENERAL_EXAM | MOCK | HOMEWORK, bắt buộc),
+     * answersRevealed (tùy chọn, mặc định false). Video ôn tập được lấy
+     * từ related_video_id của từng câu trong JSON.
+     *
+     * Với MOCK, duration_minutes trong JSON là thời lượng thi bắt buộc.
      */
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize(STAFF_ONLY)
     public ResponseEntity<ExamImportResponseDto> importExam(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("examType") ExamType examType,
-            @RequestParam(value = "videoId", required = false) UUID videoId,
+            @RequestParam(value = "examType", required = false) ExamType examType,
             @RequestParam(value = "answersRevealed", defaultValue = "false") boolean answersRevealed,
             Authentication authentication) {
 
         ExamImportResponseDto result =
-                examService.importExam(file, examType, videoId, answersRevealed, authentication.getName());
+                examService.importExam(file, examType, answersRevealed, authentication.getName());
 
         URI location = ServletUriComponentsBuilder.fromCurrentContextPath()
                 .path("/api/v1/exams/{id}/preview")
@@ -56,7 +58,12 @@ public class ExamController {
         return ResponseEntity.created(location).body(result);
     }
 
-    /** Đề làm bài (không có đáp án). Học sinh chỉ xem được đề đã PUBLISHED. */
+    /** Danh sách đề PUBLISHED; GENERAL_EXAM/ MOCK là đề thi, HOMEWORK là bài tập. */
+    @GetMapping
+    public ResponseEntity<java.util.List<ExamResponseDto>> listPublishedExams() {
+        return ResponseEntity.ok(examService.listPublishedExams());
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ExamResponseDto> getExamDetail(@PathVariable UUID id, Authentication authentication) {
         return ResponseEntity.ok(examService.getExamDetail(id, isStaff(authentication)));

@@ -2,7 +2,6 @@ package com.ice.iceenglish.modules.exams.entity;
 
 import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
-import com.ice.iceenglish.modules.learning.entity.Video;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -24,11 +23,6 @@ public class Exam {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-
-    /** Có giá trị nếu là bài tập của một video, null nếu là đề thi chung. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "video_id")
-    private Video video;
 
     @Column(nullable = false)
     private String title;

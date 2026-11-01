@@ -1,5 +1,6 @@
 package com.ice.iceenglish.modules.submissions.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 import java.time.LocalDateTime;
@@ -14,10 +15,20 @@ public class ExamResultResponse {
     private String examTitle;
     private Integer totalQuestions;
     private Integer totalCorrect;
-    private Double score; // Điểm số (thang điểm 10)
+    private Integer totalIncorrect;
+    private Double score; // Điểm số: mỗi câu đúng được 0.25 điểm
     private LocalDateTime startedAt;
     private LocalDateTime submittedAt;
+    private List<PartTimeLogDto> partTimeLogs;
     private List<QuestionResultDto> details;
+
+    @Data
+    @Builder
+    public static class PartTimeLogDto {
+        private UUID partId;
+        private String partName;
+        private Integer timeSpentSeconds;
+    }
 
     @Data
     @Builder
@@ -39,6 +50,7 @@ public class ExamResultResponse {
     public static class RelatedVideoDto {
         private UUID videoId;
         private String videoTitle;
+        @JsonProperty("video_url")
         private String videoUrl;
     }
 }

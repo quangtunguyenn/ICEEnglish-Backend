@@ -33,6 +33,9 @@ public class Submission {
     @Column(nullable = false, length = 20)
     private String mode; // 'PRACTICE', 'MOCK', 'HOMEWORK'
 
+    @Column(name = "time_limit_minutes")
+    private Integer timeLimitMinutes;
+
     @Column(name = "total_questions", nullable = false)
     private Integer totalQuestions;
 
@@ -43,7 +46,7 @@ public class Submission {
     @Column(name = "started_at", nullable = false)
     private LocalDateTime startedAt;
 
-    @Column(name = "submitted_at", nullable = false)
+    @Column(name = "submitted_at")
     private LocalDateTime submittedAt;
 
     @CreationTimestamp

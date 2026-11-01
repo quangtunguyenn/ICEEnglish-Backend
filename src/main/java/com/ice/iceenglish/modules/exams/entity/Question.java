@@ -1,6 +1,6 @@
 package com.ice.iceenglish.modules.exams.entity;
 
-import com.ice.iceenglish.modules.learning.entity.Video;
+import com.ice.iceenglish.modules.videos.entity.Video;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;

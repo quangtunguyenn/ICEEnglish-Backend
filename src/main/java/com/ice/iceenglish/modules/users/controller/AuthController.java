@@ -2,11 +2,15 @@ package com.ice.iceenglish.modules.users.controller;
 
 import com.ice.iceenglish.modules.users.dto.LoginRequest;
 import com.ice.iceenglish.modules.users.dto.StudentCreateRequest;
+import com.ice.iceenglish.modules.users.dto.UserProfileResponse;
 import com.ice.iceenglish.modules.users.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -25,5 +29,13 @@ public class AuthController {
     public ResponseEntity<String> login(@RequestBody LoginRequest request) {
         String token = authService.login(request);
         return ResponseEntity.ok(token);
+    }
+
+    @GetMapping("/profile")
+    public ResponseEntity<UserProfileResponse> profile(Authentication authentication) {
+        List<String> authorities = authentication.getAuthorities().stream()
+                .map(authority -> authority.getAuthority())
+                .toList();
+        return ResponseEntity.ok(authService.getProfile(authentication.getName(), authorities));
     }
 }

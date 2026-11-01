@@ -1,12 +1,14 @@
 package com.ice.iceenglish.modules.exams.repository;
 
 import com.ice.iceenglish.modules.exams.entity.Exam;
+import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -20,4 +22,6 @@ public interface ExamRepository extends JpaRepository<Exam, UUID> {
      */
     @Query("SELECT DISTINCT e FROM Exam e LEFT JOIN FETCH e.parts WHERE e.id = :id")
     Optional<Exam> findByIdWithParts(@Param("id") UUID id);
+
+    List<Exam> findByStatusOrderByCreatedAtDesc(ExamStatus status);
 }

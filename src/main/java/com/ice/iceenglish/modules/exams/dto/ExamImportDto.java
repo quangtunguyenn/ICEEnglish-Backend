@@ -1,15 +1,17 @@
 package com.ice.iceenglish.modules.exams.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Cấu trúc file JSON giáo viên upload. Mọi kiểm tra nghiệp vụ nằm ở ExamImportValidator
  * (không dùng Bean Validation để thông báo lỗi theo đúng đường dẫn trong file JSON).
- * exam_type và video_id không nằm trong file mà lấy từ form upload.
+ * exam_type có thể lấy từ form upload hoặc metadata JSON.
  */
 @Data
 public class ExamImportDto {
@@ -20,7 +22,23 @@ public class ExamImportDto {
     @JsonProperty("duration_minutes")
     private Integer durationMinutes;
 
+    private ExamMetadata exam;
+
     private List<PartImport> parts;
+
+    @Data
+    public static class ExamMetadata {
+        private String title;
+
+        @JsonProperty("exam_type")
+        private String examType;
+
+        @JsonProperty("duration_minutes")
+        private Integer durationMinutes;
+
+        @JsonProperty("is_answers_revealed")
+        private Boolean answersRevealed;
+    }
 
     @Data
     public static class PartImport {
@@ -46,11 +64,27 @@ public class ExamImportDto {
     public static class QuestionImport {
         private String content;
 
-        /** Phải có đủ 4 khóa A, B, C, D. */
+        @JsonProperty("options")
         private Map<String, String> options;
 
         @JsonProperty("correct_option")
+        @JsonAlias("correct_opt")
         private String correctOption;
+
+        @JsonProperty("related_video_id")
+        private UUID relatedVideoId;
+
+        @JsonProperty("opt_a")
+        private String optA;
+
+        @JsonProperty("opt_b")
+        private String optB;
+
+        @JsonProperty("opt_c")
+        private String optC;
+
+        @JsonProperty("opt_d")
+        private String optD;
 
         private String explanation;
 

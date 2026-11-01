@@ -15,7 +15,6 @@ public class CreateExamRequestDto {
         private String examType;
         private Integer durationMinutes;
         private Boolean isAnswersRevealed;
-        private UUID videoId; // Có thể null
     }
 
     @Data
