@@ -1,7 +1,11 @@
 package com.ice.iceenglish.modules.submissions.repository;
 
 import com.ice.iceenglish.modules.submissions.entity.Submission;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -17,5 +21,13 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
     // Lấy lịch sử làm bài của học sinh đối với 1 đề thi cụ thể
     List<Submission> findByUserIdAndExamIdOrderByCreatedAtDesc(UUID userId, UUID examId);
 
+    Optional<Submission> findFirstByUserUsernameAndExamIdAndSubmittedAtIsNullOrderByStartedAtDesc(
+            String username, UUID examId);
+
     Optional<Submission> findByIdAndUserUsername(UUID id, String username);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from Submission s where s.id = :id and s.user.username = :username")
+    Optional<Submission> findByIdAndUserUsernameForUpdate(
+            @Param("id") UUID id, @Param("username") String username);
 }

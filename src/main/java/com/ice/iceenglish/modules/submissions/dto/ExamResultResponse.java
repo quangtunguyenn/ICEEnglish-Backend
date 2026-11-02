@@ -37,10 +37,10 @@ public class ExamResultResponse {
         private Integer orderIndex;
         private String content;
         private String selectedOpt; // Đáp án học sinh chọn ('A', 'B', 'C', 'D' hoặc null)
-        private String correctOpt;  // Đáp án đúng
-        private Boolean isCorrect;   // true/false
-        private String explanation;  // Lời giải chi tiết (Markdown)
-        
+        private String correctOpt; // Đáp án đúng
+        private Boolean isCorrect; // true/false
+        private String explanation; // Lời giải chi tiết (Markdown)
+
         // Video gợi ý ôn tập nếu học sinh làm SAI
         private RelatedVideoDto relatedVideo;
     }

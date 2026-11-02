@@ -118,6 +118,10 @@ public class ExamImportValidator {
 
         if (part.getRecommendedTimeSeconds() != null && part.getRecommendedTimeSeconds() < 1) {
             errors.add(path + ".recommended_time_seconds: phải >= 1 (hoặc bỏ trống).");
+        } else if (type != null && part.getRecommendedTimeSeconds() != null
+                && !part.getRecommendedTimeSeconds().equals(type.getStandardTimeSeconds())) {
+            errors.add(path + ".recommended_time_seconds: phải bằng "
+                    + type.getStandardTimeSeconds() + " giây theo chuẩn của " + type + ".");
         }
 
         if (type != null && type.isPassageRequired() && isBlank(part.getPassageText())) {

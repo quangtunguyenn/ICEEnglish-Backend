@@ -49,7 +49,7 @@ public class SubmissionService {
         if (exam.getStatus() != ExamStatus.PUBLISHED) {
             throw new IllegalStateException("Đề thi chưa được xuất bản.");
         }
-        User user = userRepository.findByUsername(username)
+        User user = userRepository.findByUsernameForUpdate(username)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy học sinh."));
         String normalizedMode = defaultMode(exam);
         Integer timeLimitMinutes = exam.getExamType()
@@ -61,6 +61,15 @@ public class SubmissionService {
         }
         int totalQuestions = questionRepository
                 .findByPartExamIdOrderByOrderIndexAsc(examId).size();
+
+        Optional<Submission> existingSubmission = submissionRepository
+                .findFirstByUserUsernameAndExamIdAndSubmittedAtIsNullOrderByStartedAtDesc(
+                        username, examId);
+        if (existingSubmission.isPresent()
+                && !isExpired(existingSubmission.get())) {
+            return toStartExamResponse(existingSubmission.get(), totalQuestions);
+        }
+
         LocalDateTime startedAt = LocalDateTime.now();
         Submission submission = Submission.builder()
                 .user(user)
@@ -72,20 +81,32 @@ public class SubmissionService {
                 .startedAt(startedAt)
                 .build();
         Submission saved = submissionRepository.save(submission);
+        return toStartExamResponse(saved, totalQuestions);
+    }
+
+    private boolean isExpired(Submission submission) {
+        return submission.getTimeLimitMinutes() != null
+                && !LocalDateTime.now().isBefore(
+                submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes()));
+    }
+
+    private StartExamResponse toStartExamResponse(Submission submission, int totalQuestions) {
+        Exam exam = submission.getExam();
         return StartExamResponse.builder()
-                .submissionId(saved.getId())
+                .submissionId(submission.getId())
                 .examId(exam.getId())
-                .mode(saved.getMode())
+                .mode(submission.getMode())
                 .totalQuestions(totalQuestions)
-                .timeLimitMinutes(saved.getTimeLimitMinutes())
-                .startedAt(startedAt)
-                .expiresAt(timeLimitMinutes == null
-                        ? null : startedAt.plusMinutes(timeLimitMinutes))
+                .timeLimitMinutes(submission.getTimeLimitMinutes())
+                .startedAt(submission.getStartedAt())
+                .expiresAt(submission.getTimeLimitMinutes() == null
+                        ? null : submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes()))
                 .parts(exam.getParts().stream()
                         .map(part -> StartExamResponse.PartTimeDto.builder()
                                 .partId(part.getId())
                                 .partName(part.getPartName())
                                 .orderIndex(part.getOrderIndex())
+                                .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
                                 .build())
                         .toList())
                 .build();
@@ -95,7 +116,7 @@ public class SubmissionService {
         return switch (exam.getExamType()) {
             case MOCK -> "MOCK";
             case HOMEWORK -> "HOMEWORK";
-            case GENERAL_EXAM -> "PRACTICE";
+            case GENERAL_EXAM -> "GENERAL_EXAM";
         };
     }
 
@@ -132,12 +153,21 @@ public class SubmissionService {
         partTimeLogRepository.save(log);
     }
 
+    @Transactional(readOnly = true)
+    public List<ExamResultResponse.PartTimeLogDto> getPartTimeLogs(
+            UUID submissionId, String username) {
+        requireStudent(username);
+        Submission submission = submissionRepository.findByIdAndUserUsername(submissionId, username)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lượt thi."));
+        return partTimeLogs(submission);
+    }
+
     @Transactional
     public ExamResultResponse submitExam(SubmitExamRequest request, String username) {
         requireStudent(username);
         validateRequest(request);
         Submission submission = submissionRepository
-                .findByIdAndUserUsername(request.getSubmissionId(), username)
+                .findByIdAndUserUsernameForUpdate(request.getSubmissionId(), username)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lượt thi"));
         if (!submission.getExam().getId().equals(request.getExamId())) {
             throw new IllegalArgumentException("exam_id không khớp với submission.");
@@ -292,10 +322,6 @@ public class SubmissionService {
         if (request.getPartLogs() == null || request.getPartLogs().isEmpty()) {
             return;
         }
-        if (!"MOCK".equals(submission.getMode())) {
-            throw new IllegalArgumentException(
-                    "Không gửi partLogs cho luyện đề hoặc bài tập về nhà.");
-        }
         Set<UUID> examPartIds = submission.getExam().getParts().stream()
                 .map(part -> part.getId())
                 .collect(Collectors.toSet());
@@ -328,9 +354,6 @@ public class SubmissionService {
     }
 
     private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(Submission submission) {
-        if (!"MOCK".equals(submission.getMode())) {
-            return List.of();
-        }
         return partTimeLogRepository.findBySubmissionIdOrderByCreatedAtAsc(submission.getId())
                 .stream()
                 .map(log -> ExamResultResponse.PartTimeLogDto.builder()

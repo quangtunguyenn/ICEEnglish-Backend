@@ -25,5 +25,6 @@ public class StartExamResponse {
         private UUID partId;
         private String partName;
         private Integer orderIndex;
+        private Integer recommendedTimeSeconds;
     }
 }

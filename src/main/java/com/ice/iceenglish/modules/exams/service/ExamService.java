@@ -124,7 +124,8 @@ public class ExamService {
                     .partType(PartType.parse(p.getPartType()))
                     .partName(p.getPartName().trim())
                     .passageText(blankToNull(p.getPassageText()))
-                    .recommendedTimeSeconds(p.getRecommendedTimeSeconds())
+                    .recommendedTimeSeconds(
+                            PartType.parse(p.getPartType()).getStandardTimeSeconds())
                     .orderIndex(p.getOrderIndex())
                     .build();
 
@@ -221,7 +222,16 @@ public class ExamService {
 
     @Transactional(readOnly = true)
     public List<ExamResponseDto> listPublishedExams() {
-        return examRepository.findByStatusOrderByCreatedAtDesc(ExamStatus.PUBLISHED).stream()
+        return listPublishedExams(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ExamResponseDto> listPublishedExams(ExamType examType) {
+        List<Exam> exams = examType == null
+                ? examRepository.findByStatusOrderByCreatedAtDesc(ExamStatus.PUBLISHED)
+                : examRepository.findByStatusAndExamTypeOrderByCreatedAtDesc(
+                        ExamStatus.PUBLISHED, examType);
+        return exams.stream()
                 .map(exam -> ExamResponseDto.builder()
                         .id(exam.getId())
                         .title(exam.getTitle())
@@ -291,7 +301,7 @@ public class ExamService {
                         .partName(part.getPartName())
                         .partType(part.getPartType())
                         .passageText(part.getPassageText())
-                        .recommendedTimeSeconds(part.getRecommendedTimeSeconds())
+                        .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
                         .orderIndex(part.getOrderIndex())
                         .questions(part.getQuestions().stream().map(q -> ExamResponseDto.QuestionDto.builder()
                                 .id(q.getId())
@@ -320,7 +330,7 @@ public class ExamService {
                         .partName(part.getPartName())
                         .partType(part.getPartType())
                         .passageText(part.getPassageText())
-                        .recommendedTimeSeconds(part.getRecommendedTimeSeconds())
+                        .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
                         .orderIndex(part.getOrderIndex())
                         .questions(part.getQuestions().stream().map(q -> ExamPreviewResponseDto.QuestionDto.builder()
                                 .id(q.getId())

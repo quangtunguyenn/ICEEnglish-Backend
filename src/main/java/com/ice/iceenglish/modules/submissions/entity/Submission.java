@@ -31,7 +31,7 @@ public class Submission {
     private Exam exam;
 
     @Column(nullable = false, length = 20)
-    private String mode; // 'PRACTICE', 'MOCK', 'HOMEWORK'
+    private String mode; // 'GENERAL_EXAM', 'MOCK', 'HOMEWORK'
 
     @Column(name = "time_limit_minutes")
     private Integer timeLimitMinutes;

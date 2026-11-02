@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -31,7 +32,8 @@ public class SubmissionController {
         }
 
         /**
-         * Body bắt buộc có submissionId, exam_id, answers và partLogs nếu là MOCK.
+         * Dùng chung cho luyện đề và thi thử. Body có submissionId, exam_id,
+         * answers và có thể có partLogs; partLogs chỉ được lưu cho MOCK.
          * Điểm trả về bằng totalCorrect * 0.25.
          */
         @PostMapping("/submit")
@@ -51,5 +53,13 @@ public class SubmissionController {
                 submissionService.trackPartTime(
                                 submissionId, partId, request, authentication.getName());
                 return ResponseEntity.noContent().build();
+        }
+
+        @GetMapping({"/{submissionId}/part-logs", "/{submissionId}/part_logs"})
+        public ResponseEntity<List<ExamResultResponse.PartTimeLogDto>> getPartTimeLogs(
+                        @PathVariable UUID submissionId,
+                        Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.getPartTimeLogs(submissionId, authentication.getName()));
         }
 }

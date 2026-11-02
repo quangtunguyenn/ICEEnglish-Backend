@@ -58,10 +58,14 @@ public class ExamController {
         return ResponseEntity.created(location).body(result);
     }
 
-    /** Danh sách đề PUBLISHED; GENERAL_EXAM/ MOCK là đề thi, HOMEWORK là bài tập. */
+    /**
+     * Danh sách đề PUBLISHED; có thể lọc bằng mode=GENERAL_EXAM, MOCK hoặc HOMEWORK.
+     * Ví dụ: GET /api/v1/exams?mode=MOCK
+     */
     @GetMapping
-    public ResponseEntity<java.util.List<ExamResponseDto>> listPublishedExams() {
-        return ResponseEntity.ok(examService.listPublishedExams());
+    public ResponseEntity<java.util.List<ExamResponseDto>> listPublishedExams(
+            @RequestParam(value = "mode", required = false) ExamType mode) {
+        return ResponseEntity.ok(examService.listPublishedExams(mode));
     }
 
     @GetMapping("/{id}")

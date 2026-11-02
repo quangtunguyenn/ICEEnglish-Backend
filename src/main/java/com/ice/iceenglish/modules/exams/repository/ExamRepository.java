@@ -24,4 +24,7 @@ public interface ExamRepository extends JpaRepository<Exam, UUID> {
     Optional<Exam> findByIdWithParts(@Param("id") UUID id);
 
     List<Exam> findByStatusOrderByCreatedAtDesc(ExamStatus status);
+
+    List<Exam> findByStatusAndExamTypeOrderByCreatedAtDesc(
+            ExamStatus status, com.ice.iceenglish.modules.exams.enums.ExamType examType);
 }
