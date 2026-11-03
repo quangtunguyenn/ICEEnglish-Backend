@@ -5,6 +5,7 @@ package com.ice.iceenglish.modules.exams.enums;
  * Thêm loại mới ở đây (và ở Frontend) trước khi giáo viên có thể upload.
  */
 public enum PartType {
+    GRAMMAR(false, 0),
     CLOZE_TEST(true, 4 * 60),
     ARRANGEMENT(false, 5 * 60),
     READING_8(true, 10 * 60),
