@@ -18,6 +18,7 @@ public class ExamResponseDto {
     private UUID id;
     private String title;
     private ExamType examType;
+    private UUID videoId;
     private Integer durationMinutes;
     private boolean answersRevealed;
     private List<ExamPartDto> parts;

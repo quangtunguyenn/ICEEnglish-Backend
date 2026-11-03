@@ -22,6 +22,9 @@ public class ExamImportDto {
     @JsonProperty("duration_minutes")
     private Integer durationMinutes;
 
+    @JsonProperty("video_id")
+    private UUID videoId;
+
     private ExamMetadata exam;
 
     private List<PartImport> parts;
@@ -35,6 +38,9 @@ public class ExamImportDto {
 
         @JsonProperty("duration_minutes")
         private Integer durationMinutes;
+
+        @JsonProperty("video_id")
+        private UUID videoId;
 
         @JsonProperty("is_answers_revealed")
         private Boolean answersRevealed;

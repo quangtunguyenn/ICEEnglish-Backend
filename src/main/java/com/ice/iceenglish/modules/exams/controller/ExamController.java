@@ -35,8 +35,9 @@ public class ExamController {
     /**
      * Import đề từ file JSON (multipart/form-data).
      * Fields: file (bắt buộc), examType (GENERAL_EXAM | MOCK | HOMEWORK, bắt buộc),
-     * answersRevealed (tùy chọn, mặc định false). Video ôn tập được lấy
-     * từ related_video_id của từng câu trong JSON.
+     * videoId (tùy chọn, chỉ dùng cho HOMEWORK), answersRevealed (tùy chọn,
+     * mặc định false). Video ôn tập của từng câu được lấy từ related_video_id
+     * trong JSON.
      *
      * Với MOCK, duration_minutes trong JSON là thời lượng thi bắt buộc.
      */
@@ -45,11 +46,15 @@ public class ExamController {
     public ResponseEntity<ExamImportResponseDto> importExam(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "examType", required = false) ExamType examType,
+            @RequestParam(value = "videoId", required = false) UUID videoId,
+            @RequestParam(value = "video_id", required = false) UUID videoIdSnakeCase,
             @RequestParam(value = "answersRevealed", defaultValue = "false") boolean answersRevealed,
             Authentication authentication) {
 
         ExamImportResponseDto result =
-                examService.importExam(file, examType, answersRevealed, authentication.getName());
+                examService.importExam(file, examType,
+                        videoId != null ? videoId : videoIdSnakeCase,
+                        answersRevealed, authentication.getName());
 
         URI location = ServletUriComponentsBuilder.fromCurrentContextPath()
                 .path("/api/v1/exams/{id}/preview")

@@ -16,6 +16,7 @@ public class ExamPreviewResponseDto {
     private UUID id;
     private String title;
     private ExamType examType;
+    private UUID videoId;
     private ExamStatus status;
     private Integer durationMinutes;
     private boolean answersRevealed;

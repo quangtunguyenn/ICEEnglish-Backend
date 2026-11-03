@@ -2,9 +2,13 @@ package com.ice.iceenglish.modules.exams.entity;
 
 import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
+import com.ice.iceenglish.modules.videos.entity.Video;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.Check;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -18,6 +22,7 @@ import java.util.UUID;
 @Builder
 @Entity
 @Table(name = "exams")
+@Check(constraints = "exam_type = 'HOMEWORK' OR video_id IS NULL")
 public class Exam {
 
     @Id
@@ -46,6 +51,11 @@ public class Exam {
     /** Username của người tạo (lấy từ Authentication.getName()). */
     @Column(name = "created_by", length = 100)
     private String createdBy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "video_id", foreignKey = @ForeignKey(name = "fk_exams_video"))
+    @OnDelete(action = OnDeleteAction.SET_NULL)
+    private Video video;
 
     @OneToMany(mappedBy = "exam", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("orderIndex ASC")

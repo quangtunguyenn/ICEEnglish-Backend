@@ -46,12 +46,19 @@ public class ExamService {
     // IMPORT
     // =====================================================================
 
+    /** Giữ tương thích cho các caller nội bộ sử dụng chữ ký cũ. */
+    @Transactional
+    public ExamImportResponseDto importExam(MultipartFile file, ExamType examType,
+                                            boolean answersRevealed, String createdBy) {
+        return importExam(file, examType, null, answersRevealed, createdBy);
+    }
+
     /**
      * Import đề từ file JSON giáo viên upload. Đề luôn được tạo ở trạng thái DRAFT;
      * giáo viên xem preview rồi mới publish.
      */
     @Transactional
-    public ExamImportResponseDto importExam(MultipartFile file, ExamType examType,
+    public ExamImportResponseDto importExam(MultipartFile file, ExamType examType, UUID videoId,
                                             boolean answersRevealed, String createdBy) {
         ExamImportDto dto = parse(file);
 
@@ -80,6 +87,23 @@ public class ExamService {
         }
         if (effectiveExamType != ExamType.MOCK && importedDuration != null) {
             errors.add("duration_minutes: chỉ được khai báo khi examType là MOCK.");
+        }
+        UUID jsonVideoId = dto.getVideoId() != null
+                ? dto.getVideoId()
+                : dto.getExam() != null ? dto.getExam().getVideoId() : null;
+        if (videoId != null && jsonVideoId != null && !videoId.equals(jsonVideoId)) {
+            errors.add("video_id: không khớp giữa form upload và JSON.");
+        }
+        UUID effectiveVideoId = videoId != null ? videoId : jsonVideoId;
+        if (effectiveVideoId != null && effectiveExamType != ExamType.HOMEWORK) {
+            errors.add("video_id: chỉ được khai báo khi examType là HOMEWORK.");
+        }
+        Video examVideo = null;
+        if (effectiveVideoId != null) {
+            examVideo = videoRepository.findById(effectiveVideoId).orElse(null);
+            if (examVideo == null) {
+                errors.add("video_id: không tìm thấy video.");
+            }
         }
 
         if (dto.getParts() != null) {
@@ -113,6 +137,7 @@ public class ExamService {
                 .status(ExamStatus.DRAFT)
                 .durationMinutes(effectiveExamType == ExamType.MOCK
                         ? importedDuration : null)
+                .video(examVideo)
                 .answersRevealed((answersRevealed || answersRevealedInJson(dto))
                         && effectiveExamType == ExamType.HOMEWORK)
                 .createdBy(createdBy)
@@ -236,6 +261,7 @@ public class ExamService {
                         .id(exam.getId())
                         .title(exam.getTitle())
                         .examType(exam.getExamType())
+                        .videoId(exam.getVideo() != null ? exam.getVideo().getId() : null)
                         .durationMinutes(exam.getDurationMinutes())
                         .answersRevealed(exam.isAnswersRevealed())
                         .parts(List.of())
@@ -294,6 +320,7 @@ public class ExamService {
                 .id(exam.getId())
                 .title(exam.getTitle())
                 .examType(exam.getExamType())
+                .videoId(exam.getVideo() != null ? exam.getVideo().getId() : null)
                 .durationMinutes(exam.getDurationMinutes())
                 .answersRevealed(exam.isAnswersRevealed())
                 .parts(exam.getParts().stream().map(part -> ExamResponseDto.ExamPartDto.builder()
