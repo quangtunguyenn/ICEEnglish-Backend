@@ -8,6 +8,7 @@ import com.ice.iceenglish.modules.exams.repository.ExamRepository;
 import com.ice.iceenglish.modules.exams.repository.QuestionRepository;
 import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
+import com.ice.iceenglish.modules.submissions.dto.SubmissionScoreResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
 import com.ice.iceenglish.modules.submissions.dto.TrackPartTimeRequest;
 import com.ice.iceenglish.modules.submissions.entity.SubDetail;
@@ -62,12 +63,24 @@ public class SubmissionService {
         int totalQuestions = questionRepository
                 .findByPartExamIdOrderByOrderIndexAsc(examId).size();
 
-        Optional<Submission> existingSubmission = submissionRepository
-                .findFirstByUserUsernameAndExamIdAndSubmittedAtIsNullOrderByStartedAtDesc(
-                        username, examId);
-        if (existingSubmission.isPresent()
-                && !isExpired(existingSubmission.get())) {
-            return toStartExamResponse(existingSubmission.get(), totalQuestions);
+        if ("MOCK".equals(normalizedMode)) {
+            Optional<Submission> existingMock = submissionRepository
+                    .findFirstByUserUsernameAndExamIdAndModeOrderByStartedAtDesc(
+                            username, examId, "MOCK");
+            if (existingMock.isPresent()) {
+                if (existingMock.get().getSubmittedAt() != null
+                        || isExpired(existingMock.get())) {
+                    throw new IllegalStateException("Học sinh chỉ được thi thử đề này một lần.");
+                }
+                return toStartExamResponse(existingMock.get(), totalQuestions);
+            }
+        } else {
+            Optional<Submission> existingSubmission = submissionRepository
+                    .findFirstByUserUsernameAndExamIdAndSubmittedAtIsNullOrderByStartedAtDesc(
+                            username, examId);
+            if (existingSubmission.isPresent() && !isExpired(existingSubmission.get())) {
+                return toStartExamResponse(existingSubmission.get(), totalQuestions);
+            }
         }
 
         LocalDateTime startedAt = LocalDateTime.now();
@@ -82,6 +95,38 @@ public class SubmissionService {
                 .build();
         Submission saved = submissionRepository.save(submission);
         return toStartExamResponse(saved, totalQuestions);
+    }
+
+    @Transactional(readOnly = true)
+    public SubmissionScoreResponse getLatestPracticeScore(UUID examId, String username) {
+        User user = requireStudentAndGet(username);
+        Submission submission = submissionRepository
+                .findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
+                        user.getId(), examId, "GENERAL_EXAM")
+                .orElseThrow(() -> new IllegalArgumentException("Chưa có kết quả luyện đề."));
+        return toScoreResponse(submission);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SubmissionScoreResponse> getMockScores(String username) {
+        User user = requireStudentAndGet(username);
+        return submissionRepository
+                .findByUserIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtAsc(
+                        user.getId(), "MOCK")
+                .stream()
+                .map(this::toScoreResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ExamResultResponse reviewMockExam(UUID examId, String username) {
+        User user = requireStudentAndGet(username);
+        Submission submission = submissionRepository
+                .findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
+                        user.getId(), examId, "MOCK")
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài thi thử đã nộp."));
+        List<SubDetail> details = subDetailRepository.findBySubmissionId(submission.getId());
+        return toResultResponse(submission, details);
     }
 
     private boolean isExpired(Submission submission) {
@@ -282,12 +327,85 @@ public class SubmissionService {
     }
 
     private void requireStudent(String username) {
+        requireStudentAndGet(username);
+    }
+
+    private User requireStudentAndGet(String username) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalStateException("Không tìm thấy tài khoản đăng nhập."));
         String role = user.getRole() == null ? "" : user.getRole().trim().toUpperCase(Locale.ROOT);
         if (!"STUDENT".equals(role)) {
             throw new IllegalStateException("Tài khoản phải có role STUDENT.");
         }
+        return user;
+    }
+
+    private SubmissionScoreResponse toScoreResponse(Submission submission) {
+        int totalCorrect = Optional.ofNullable(submission.getTotalCorrect()).orElse(0);
+        int totalQuestions = Optional.ofNullable(submission.getTotalQuestions()).orElse(0);
+        return SubmissionScoreResponse.builder()
+                .submissionId(submission.getId())
+                .examId(submission.getExam().getId())
+                .examTitle(submission.getExam().getTitle())
+                .totalQuestions(totalQuestions)
+                .totalCorrect(totalCorrect)
+                .totalIncorrect(totalQuestions - totalCorrect)
+                .score(totalCorrect * 0.25)
+                .startedAt(submission.getStartedAt())
+                .submittedAt(submission.getSubmittedAt())
+                .build();
+    }
+
+    private ExamResultResponse toResultResponse(
+            Submission submission, List<SubDetail> details) {
+        Map<UUID, Video> videoMap = videoRepository.findAllById(details.stream()
+                        .map(SubDetail::getQuestion)
+                        .map(Question::getRelatedVideo)
+                        .filter(Objects::nonNull)
+                        .map(Video::getId)
+                        .collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(Video::getId, Function.identity()));
+        List<ExamResultResponse.QuestionResultDto> resultDetails = details.stream()
+                .map(detail -> {
+                    Question question = detail.getQuestion();
+                    Video video = question.getRelatedVideo() == null
+                            ? null : videoMap.get(question.getRelatedVideo().getId());
+                    ExamResultResponse.RelatedVideoDto videoDto = !Boolean.TRUE.equals(detail.getIsCorrect())
+                            && video != null
+                            ? ExamResultResponse.RelatedVideoDto.builder()
+                                    .videoId(video.getId())
+                                    .videoTitle(video.getTitle())
+                                    .videoUrl(video.getVideoUrl())
+                                    .build()
+                            : null;
+                    return ExamResultResponse.QuestionResultDto.builder()
+                            .questionId(question.getId())
+                            .orderIndex(question.getOrderIndex())
+                            .content(question.getContent())
+                            .selectedOpt(detail.getSelectedOpt())
+                            .correctOpt(question.getCorrectOpt())
+                            .isCorrect(detail.getIsCorrect())
+                            .explanation(question.getExplanation())
+                            .relatedVideo(videoDto)
+                            .build();
+                })
+                .toList();
+        int totalCorrect = Optional.ofNullable(submission.getTotalCorrect()).orElse(0);
+        int totalQuestions = Optional.ofNullable(submission.getTotalQuestions()).orElse(0);
+        return ExamResultResponse.builder()
+                .submissionId(submission.getId())
+                .examId(submission.getExam().getId())
+                .examTitle(submission.getExam().getTitle())
+                .totalQuestions(totalQuestions)
+                .totalCorrect(totalCorrect)
+                .totalIncorrect(totalQuestions - totalCorrect)
+                .score(totalCorrect * 0.25)
+                .startedAt(submission.getStartedAt())
+                .submittedAt(submission.getSubmittedAt())
+                .partTimeLogs(partTimeLogs(submission))
+                .details(resultDetails)
+                .build();
     }
 
     private Map<UUID, String> mapAnswers(SubmitExamRequest request, Map<UUID, Question> questionMap) {

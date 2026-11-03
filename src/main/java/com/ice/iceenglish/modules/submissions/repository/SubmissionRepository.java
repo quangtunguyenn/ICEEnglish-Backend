@@ -24,6 +24,15 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
     Optional<Submission> findFirstByUserUsernameAndExamIdAndSubmittedAtIsNullOrderByStartedAtDesc(
             String username, UUID examId);
 
+    Optional<Submission> findFirstByUserUsernameAndExamIdAndModeOrderByStartedAtDesc(
+            String username, UUID examId, String mode);
+
+    Optional<Submission> findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
+            UUID userId, UUID examId, String mode);
+
+    List<Submission> findByUserIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtAsc(
+            UUID userId, String mode);
+
     Optional<Submission> findByIdAndUserUsername(UUID id, String username);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

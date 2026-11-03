@@ -4,6 +4,7 @@ import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.dto.TrackPartTimeRequest;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
+import com.ice.iceenglish.modules.submissions.dto.SubmissionScoreResponse;
 import com.ice.iceenglish.modules.submissions.service.SubmissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +20,29 @@ import java.util.UUID;
 public class SubmissionController {
 
         private final SubmissionService submissionService;
+
+        @GetMapping("/practice/{examId}/latest-score")
+        public ResponseEntity<SubmissionScoreResponse> getLatestPracticeScore(
+                        @PathVariable UUID examId, Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.getLatestPracticeScore(examId, authentication.getName()));
+        }
+
+        @GetMapping("/mock/scores")
+        public ResponseEntity<List<SubmissionScoreResponse>> getMockScores(
+                        Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.getMockScores(authentication.getName()));
+        }
+
+        @GetMapping("/mock/{examId}/review")
+        public ResponseEntity<ExamResultResponse> reviewMockExam(
+                        @PathVariable UUID examId,
+                        Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.reviewMockExam(
+                                                examId, authentication.getName()));
+        }
 
         /**
          * Chế độ và thời lượng được lấy từ exam trong DB, không nhận từ học sinh.
