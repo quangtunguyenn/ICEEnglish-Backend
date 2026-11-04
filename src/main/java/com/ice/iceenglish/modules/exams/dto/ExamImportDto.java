@@ -25,6 +25,9 @@ public class ExamImportDto {
     @JsonProperty("video_id")
     private UUID videoId;
 
+    @JsonProperty("answers_url")
+    private String answersUrl;
+
     private ExamMetadata exam;
 
     private List<PartImport> parts;
@@ -44,6 +47,9 @@ public class ExamImportDto {
 
         @JsonProperty("is_answers_revealed")
         private Boolean answersRevealed;
+
+        @JsonProperty("answers_url")
+        private String answersUrl;
     }
 
     @Data
@@ -62,6 +68,8 @@ public class ExamImportDto {
 
         @JsonProperty("order_index")
         private Integer orderIndex;
+
+        private String translate;
 
         private List<QuestionImport> questions;
     }

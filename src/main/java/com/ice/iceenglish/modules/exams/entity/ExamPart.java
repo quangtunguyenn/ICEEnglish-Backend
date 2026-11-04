@@ -37,6 +37,9 @@ public class ExamPart {
     @Column(name = "passage_text", columnDefinition = "TEXT")
     private String passageText;
 
+    @Column(name = "translate", columnDefinition = "TEXT")
+    private String translate;
+
     @Column(name = "recommended_time_seconds")
     private Integer recommendedTimeSeconds;
 

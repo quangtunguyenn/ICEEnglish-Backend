@@ -6,7 +6,6 @@ import com.ice.iceenglish.modules.videos.entity.Video;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.Check;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -22,7 +21,6 @@ import java.util.UUID;
 @Builder
 @Entity
 @Table(name = "exams")
-@Check(constraints = "exam_type = 'HOMEWORK' OR video_id IS NULL")
 public class Exam {
 
     @Id
@@ -47,6 +45,9 @@ public class Exam {
     @Column(name = "is_answers_revealed", nullable = false)
     @Builder.Default
     private boolean answersRevealed = false;
+
+    @Column(name = "answers_url", length = 1000)
+    private String answersUrl;
 
     /** Username của người tạo (lấy từ Authentication.getName()). */
     @Column(name = "created_by", length = 100)

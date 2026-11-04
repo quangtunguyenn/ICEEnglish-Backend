@@ -46,64 +46,34 @@ public class ExamService {
     // IMPORT
     // =====================================================================
 
-    /** Giữ tương thích cho các caller nội bộ sử dụng chữ ký cũ. */
-    @Transactional
-    public ExamImportResponseDto importExam(MultipartFile file, ExamType examType,
-                                            boolean answersRevealed, String createdBy) {
-        return importExam(file, examType, null, answersRevealed, createdBy);
-    }
-
     /**
      * Import đề từ file JSON giáo viên upload. Đề luôn được tạo ở trạng thái DRAFT;
      * giáo viên xem preview rồi mới publish.
+     * answerRevealed luôn được đặt thành false.
      */
     @Transactional
-    public ExamImportResponseDto importExam(MultipartFile file, ExamType examType, UUID videoId,
-                                            boolean answersRevealed, String createdBy) {
+    public ExamImportResponseDto importExam(MultipartFile file, ExamType examType, String createdBy) {
         ExamImportDto dto = parse(file);
 
         ExamImportValidator.Report report = importValidator.validate(dto);
         List<String> errors = new ArrayList<>(report.errors());
+        
         ExamType effectiveExamType = examType;
-        if (effectiveExamType == null && dto.getExam() != null
-                && dto.getExam().getExamType() != null) {
-            try {
-                effectiveExamType = ExamType.valueOf(dto.getExam().getExamType().trim().toUpperCase());
-            } catch (IllegalArgumentException e) {
-                errors.add("exam.exam_type: giá trị không hợp lệ.");
-            }
-        }
         if (effectiveExamType == null) {
-            errors.add("examType: bắt buộc (hoặc khai báo exam.exam_type trong JSON).");
+            errors.add("examType: bắt buộc.");
         }
-        String jsonExamType = dto.getExam() != null ? dto.getExam().getExamType() : null;
-        if (effectiveExamType != null && jsonExamType != null
-                && !effectiveExamType.name().equalsIgnoreCase(jsonExamType.trim())) {
-            errors.add("exam.exam_type: không khớp với examType trong form upload.");
+        
+        // Kiểm tra examType chỉ cho phép GENERAL_EXAM hoặc MOCK
+        if (effectiveExamType != null && effectiveExamType != ExamType.GENERAL_EXAM && effectiveExamType != ExamType.MOCK) {
+            errors.add("examType: chỉ cho phép GENERAL_EXAM hoặc MOCK.");
         }
+        
         Integer importedDuration = durationMinutes(dto);
         if (effectiveExamType == ExamType.MOCK && importedDuration == null) {
             errors.add("duration_minutes: bắt buộc khi examType là MOCK.");
         }
-        if (effectiveExamType != ExamType.MOCK && importedDuration != null) {
+        if (effectiveExamType == ExamType.GENERAL_EXAM && importedDuration != null) {
             errors.add("duration_minutes: chỉ được khai báo khi examType là MOCK.");
-        }
-        UUID jsonVideoId = dto.getVideoId() != null
-                ? dto.getVideoId()
-                : dto.getExam() != null ? dto.getExam().getVideoId() : null;
-        if (videoId != null && jsonVideoId != null && !videoId.equals(jsonVideoId)) {
-            errors.add("video_id: không khớp giữa form upload và JSON.");
-        }
-        UUID effectiveVideoId = videoId != null ? videoId : jsonVideoId;
-        if (effectiveVideoId != null && effectiveExamType != ExamType.HOMEWORK) {
-            errors.add("video_id: chỉ được khai báo khi examType là HOMEWORK.");
-        }
-        Video examVideo = null;
-        if (effectiveVideoId != null) {
-            examVideo = videoRepository.findById(effectiveVideoId).orElse(null);
-            if (examVideo == null) {
-                errors.add("video_id: không tìm thấy video.");
-            }
         }
 
         if (dto.getParts() != null) {
@@ -137,9 +107,9 @@ public class ExamService {
                 .status(ExamStatus.DRAFT)
                 .durationMinutes(effectiveExamType == ExamType.MOCK
                         ? importedDuration : null)
-                .video(examVideo)
-                .answersRevealed((answersRevealed || answersRevealedInJson(dto))
-                        && effectiveExamType == ExamType.HOMEWORK)
+                .video(null)
+                .answersUrl(null)
+                .answersRevealed(false)
                 .createdBy(createdBy)
                 .build();
 
@@ -149,6 +119,7 @@ public class ExamService {
                     .partType(PartType.parse(p.getPartType()))
                     .partName(p.getPartName().trim())
                     .passageText(blankToNull(p.getPassageText()))
+                    .translate(blankToNull(p.getTranslate()))
                     .recommendedTimeSeconds(
                             PartType.parse(p.getPartType()).getStandardTimeSeconds())
                     .orderIndex(p.getOrderIndex())
@@ -198,6 +169,11 @@ public class ExamService {
 
     private static boolean answersRevealedInJson(ExamImportDto dto) {
         return dto.getExam() != null && Boolean.TRUE.equals(dto.getExam().getAnswersRevealed());
+    }
+
+    private static String answersUrl(ExamImportDto dto) {
+        return !isBlank(dto.getAnswersUrl()) ? dto.getAnswersUrl()
+                : dto.getExam() != null ? dto.getExam().getAnswersUrl() : null;
     }
 
     private static Map<String, String> optionsOf(ExamImportDto.QuestionImport question) {
@@ -315,6 +291,10 @@ public class ExamService {
         return (s == null || s.isBlank()) ? null : s;
     }
 
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
     private ExamResponseDto toStudentDto(Exam exam) {
         return ExamResponseDto.builder()
                 .id(exam.getId())
@@ -351,6 +331,7 @@ public class ExamService {
                 .status(exam.getStatus())
                 .durationMinutes(exam.getDurationMinutes())
                 .answersRevealed(exam.isAnswersRevealed())
+                .answersUrl(exam.getAnswersUrl())
                 .createdBy(exam.getCreatedBy())
                 .parts(exam.getParts().stream().map(part -> ExamPreviewResponseDto.PartDto.builder()
                         .id(part.getId())
