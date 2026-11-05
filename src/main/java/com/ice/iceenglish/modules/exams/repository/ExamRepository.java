@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 import java.util.List;
 import java.util.UUID;
+import com.ice.iceenglish.modules.exams.enums.ExamType;
 
 @Repository
 public interface ExamRepository extends JpaRepository<Exam, UUID> {
@@ -22,6 +23,12 @@ public interface ExamRepository extends JpaRepository<Exam, UUID> {
      */
     @Query("SELECT DISTINCT e FROM Exam e LEFT JOIN FETCH e.parts WHERE e.id = :id")
     Optional<Exam> findByIdWithParts(@Param("id") UUID id);
+
+    @Query("SELECT DISTINCT e FROM Exam e LEFT JOIN FETCH e.parts " +
+            "WHERE e.video.id = :videoId AND e.examType = :examType " +
+            "ORDER BY e.createdAt DESC")
+    List<Exam> findByVideoIdAndExamTypeWithParts(
+            @Param("videoId") UUID videoId, @Param("examType") ExamType examType);
 
     List<Exam> findByStatusOrderByCreatedAtDesc(ExamStatus status);
 

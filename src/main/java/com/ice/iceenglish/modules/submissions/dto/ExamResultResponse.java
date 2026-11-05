@@ -1,5 +1,6 @@
 package com.ice.iceenglish.modules.submissions.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
@@ -22,6 +23,20 @@ public class ExamResultResponse {
     private List<PartTimeLogDto> partTimeLogs;
     private List<QuestionResultDto> details;
 
+    // Bản dịch đoạn văn của các phần READING_8 / READING_10
+    private List<PartTranslationDto> partTranslations;
+
+    @Data
+    @Builder
+    public static class PartTranslationDto {
+        private UUID partId;
+        private String partName;
+        private String partType;
+        @JsonProperty("passage_text")
+        private String passageText;
+        private String translate;
+    }
+
     @Data
     @Builder
     public static class PartTimeLogDto {
@@ -40,6 +55,11 @@ public class ExamResultResponse {
         private String correctOpt; // Đáp án đúng
         private Boolean isCorrect; // true/false
         private String explanation; // Lời giải chi tiết (Markdown)
+
+        // Chỉ có ở câu đầu tiên của part READING_8 / READING_10 để frontend render phần dịch
+        @JsonProperty("part_type")
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private String partType;
 
         // Video gợi ý ôn tập nếu học sinh làm SAI
         private RelatedVideoDto relatedVideo;

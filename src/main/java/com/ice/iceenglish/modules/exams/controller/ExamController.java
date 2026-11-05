@@ -1,5 +1,6 @@
 package com.ice.iceenglish.modules.exams.controller;
 
+import com.ice.iceenglish.modules.exams.dto.AnswersRevealedResponse;
 import com.ice.iceenglish.modules.exams.dto.ExamImportResponseDto;
 import com.ice.iceenglish.modules.exams.dto.ExamPreviewResponseDto;
 import com.ice.iceenglish.modules.exams.dto.ExamResponseDto;
@@ -91,6 +92,19 @@ public class ExamController {
     public ResponseEntity<Void> archive(@PathVariable UUID id) {
         examService.archive(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Lấy trạng thái hiển thị đáp án (is_answers_revealed) của exam. */
+    @GetMapping("/{id}/answers-revealed")
+    public ResponseEntity<AnswersRevealedResponse> getAnswersRevealed(@PathVariable UUID id) {
+        return ResponseEntity.ok(examService.getAnswersRevealed(id));
+    }
+
+    /** Đảo trạng thái hiển thị đáp án (is_answers_revealed) và trả về trạng thái mới. */
+    @PatchMapping("/{id}/answers-revealed")
+    @PreAuthorize(STAFF_ONLY)
+    public ResponseEntity<AnswersRevealedResponse> toggleAnswersRevealed(@PathVariable UUID id) {
+        return ResponseEntity.ok(examService.toggleAnswersRevealed(id));
     }
 
     private boolean isStaff(Authentication authentication) {

@@ -30,6 +30,9 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
     Optional<Submission> findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
             UUID userId, UUID examId, String mode);
 
+    Optional<Submission> findFirstByUserIdAndExamIdAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
+            UUID userId, UUID examId);
+
     List<Submission> findByUserIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtAsc(
             UUID userId, String mode);
 

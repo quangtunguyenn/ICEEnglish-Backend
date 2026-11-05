@@ -63,9 +63,20 @@ public class Exam {
     @Builder.Default
     private List<ExamPart> parts = new ArrayList<>();
 
+    /** Câu hỏi trực tiếp của HOMEWORK (không qua part). */
+    @OneToMany(mappedBy = "exam", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("orderIndex ASC")
+    @Builder.Default
+    private List<Question> questions = new ArrayList<>();
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    public void addQuestion(Question question) {
+        questions.add(question);
+        question.setExam(this);
+    }
 
     public void addPart(ExamPart part) {
         parts.add(part);

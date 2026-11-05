@@ -2,7 +2,15 @@ package com.ice.iceenglish.modules.videos.controller;
 
 import com.ice.iceenglish.modules.learning.dto.CreateVideoLearningBundleRequest;
 import com.ice.iceenglish.modules.learning.dto.CreateVideoLearningBundleResponse;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
 import com.ice.iceenglish.modules.videos.dto.VideoResponseDto;
+import com.ice.iceenglish.modules.videos.dto.VideoTitleResponse;
+import com.ice.iceenglish.modules.videos.dto.HomeworkAnswersResponse;
+import com.ice.iceenglish.modules.videos.dto.VideoDocumentResponse;
+import com.ice.iceenglish.modules.videos.dto.VideoLearningContentResponse;
+import com.ice.iceenglish.modules.exams.dto.ExamResponseDto;
+import com.ice.iceenglish.modules.learning.dto.VocabularyResponseDto;
 import com.ice.iceenglish.modules.videos.service.VideoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -18,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/videos")
@@ -28,15 +37,15 @@ public class VideoController {
 
     /**
      * Tạo một bài học gồm video, homework và danh sách vocabulary trong một transaction.
-     * Homework nhận danh sách câu hỏi phẳng và được lưu thành một part GRAMMAR.
+     * Nhận file JSON (multipart/form-data, field "file"). Homework được lưu thành một part GRAMMAR.
      */
-    @PostMapping("/learning-bundle")
+    @PostMapping(value = "/learning-bundle", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyAuthority('ADMIN','TEACHER','ROLE_ADMIN','ROLE_TEACHER')")
     public ResponseEntity<CreateVideoLearningBundleResponse> createLearningBundle(
-            @RequestBody CreateVideoLearningBundleRequest request,
+            @RequestParam("file") MultipartFile file,
             Authentication authentication) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(videoService.createLearningBundle(request, authentication.getName()));
+                .body(videoService.createLearningBundle(file, authentication.getName()));
     }
 
     /**
@@ -49,15 +58,34 @@ public class VideoController {
         return ResponseEntity.ok(videoService.getAll(title));
     }
 
-    /** Lấy danh sách title duy nhất của toàn bộ video. */
+    /** Lấy video_id và title của toàn bộ video, sắp xếp theo title. */
     @GetMapping("/titles")
-    public ResponseEntity<List<String>> getAllVideoTitles() {
+    public ResponseEntity<List<VideoTitleResponse>> getAllVideoTitles() {
         return ResponseEntity.ok(videoService.getAllTitles());
     }
 
-    /** Endpoint tường minh cho client cần tìm video theo title. */
-    @GetMapping("/title/{title}")
-    public ResponseEntity<List<VideoResponseDto>> getVideosByTitle(@PathVariable String title) {
-        return ResponseEntity.ok(videoService.findByTitle(title));
+    @GetMapping("/{videoId}/learning-content")
+    public ResponseEntity<VideoLearningContentResponse> getLearningContent(@PathVariable UUID videoId) {
+        return ResponseEntity.ok(videoService.getLearningContent(videoId));
+    }
+
+    @GetMapping("/{videoId}/document")
+    public ResponseEntity<VideoDocumentResponse> getDocument(@PathVariable UUID videoId) {
+        return ResponseEntity.ok(videoService.getDocument(videoId));
+    }
+
+    @GetMapping("/{videoId}/homework")
+    public ResponseEntity<ExamResponseDto> getHomework(@PathVariable UUID videoId) {
+        return ResponseEntity.ok(videoService.getHomework(videoId));
+    }
+
+    @GetMapping("/{videoId}/homework/answers")
+    public ResponseEntity<HomeworkAnswersResponse> getHomeworkAnswers(@PathVariable UUID videoId) {
+        return ResponseEntity.ok(videoService.getHomeworkAnswers(videoId));
+    }
+
+    @GetMapping("/{videoId}/vocabularies")
+    public ResponseEntity<List<VocabularyResponseDto>> getVocabularies(@PathVariable UUID videoId) {
+        return ResponseEntity.ok(videoService.getVocabularies(videoId));
     }
 }

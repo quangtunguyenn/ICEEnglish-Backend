@@ -23,9 +23,15 @@ public class Question {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "part_id", nullable = false)
+    /** Null với câu hỏi của HOMEWORK (homework không có part, câu hỏi nối thẳng vào exam). */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "part_id")
     private ExamPart part;
+
+    /** Chỉ dùng cho HOMEWORK; câu hỏi của đề thường thuộc exam thông qua part. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "exam_id")
+    private Exam exam;
 
     /** Nội dung câu hỏi, đã bỏ tiền tố "Question N". Có thể rỗng với phần CLOZE_TEST. */
     @Column(nullable = false, columnDefinition = "TEXT")

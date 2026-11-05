@@ -1,6 +1,7 @@
 package com.ice.iceenglish.modules.submissions.controller;
 
 import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
+import com.ice.iceenglish.modules.submissions.dto.AnswerUrlResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.dto.TrackPartTimeRequest;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
@@ -35,6 +36,14 @@ public class SubmissionController {
                                 submissionService.getMockScores(authentication.getName()));
         }
 
+        @GetMapping("/exams/{examId}/answer-url")
+        public ResponseEntity<AnswerUrlResponse> getAnswerUrl(
+                        @PathVariable UUID examId,
+                        Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.getAnswerUrl(examId, authentication.getName()));
+        }
+
         @GetMapping("/mock/{examId}/review")
         public ResponseEntity<ExamResultResponse> reviewMockExam(
                         @PathVariable UUID examId,
@@ -55,6 +64,14 @@ public class SubmissionController {
                                 submissionService.startExam(examId, authentication.getName()));
         }
 
+        @PostMapping("/homework/start/{videoId}")
+        public ResponseEntity<StartExamResponse> startHomework(
+                                @PathVariable UUID videoId,
+                                Authentication authentication) {
+                return ResponseEntity.ok(
+                                        submissionService.startHomeworkByVideo(videoId, authentication.getName()));
+        }
+
         /**
          * Dùng chung cho luyện đề và thi thử. Body có submissionId, exam_id,
          * answers và có thể có partLogs; partLogs chỉ được lưu cho MOCK.
@@ -68,6 +85,14 @@ public class SubmissionController {
                                 submissionService.submitExam(request, authentication.getName()));
         }
 
+        @PostMapping("/homework/submit")
+        public ResponseEntity<ExamResultResponse> submitHomework(
+                                @RequestBody SubmitExamRequest request,
+                                Authentication authentication) {
+                return ResponseEntity.ok(
+                                        submissionService.submitHomework(request, authentication.getName()));
+        }
+
         @PutMapping("/{submissionId}/parts/{partId}/time")
         public ResponseEntity<Void> trackPartTime(
                         @PathVariable UUID submissionId,
@@ -79,7 +104,7 @@ public class SubmissionController {
                 return ResponseEntity.noContent().build();
         }
 
-        @GetMapping({"/{submissionId}/part-logs", "/{submissionId}/part_logs"})
+        @GetMapping("/{submissionId}/part-logs")
         public ResponseEntity<List<ExamResultResponse.PartTimeLogDto>> getPartTimeLogs(
                         @PathVariable UUID submissionId,
                         Authentication authentication) {

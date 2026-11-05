@@ -1,5 +1,6 @@
 package com.ice.iceenglish.modules.exams.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
 import com.ice.iceenglish.modules.exams.enums.PartType;
 import lombok.Builder;
@@ -21,7 +22,12 @@ public class ExamResponseDto {
     private UUID videoId;
     private Integer durationMinutes;
     private boolean answersRevealed;
+    @JsonProperty("answers_url")
+    private String answersUrl;
     private List<ExamPartDto> parts;
+
+    /** Câu hỏi của HOMEWORK (không có part). Rỗng với đề thường. */
+    private List<QuestionDto> questions;
 
     @Data
     @Builder

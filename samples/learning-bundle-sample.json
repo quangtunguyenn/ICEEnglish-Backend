@@ -1,0 +1,49 @@
+{
+  "video": {
+    "title": "Daily Conversation",
+    "videoUrl": "https://www.youtube.com/watch?v=1wXBIzWNnEs",
+    "documentUrl": "https://drive.google.com/file/d/1lqt4z84Ksd9H3dWZS72czwx52qzVvFsO/view?usp=sharing"
+  },
+  "homework": {
+    "exam": {
+      "title": "Daily Conversation Homework"
+    },
+    "questions": [
+      {
+        "orderIndex": 1,
+        "content": "I _______ in the room now.",
+        "optA": "am being",
+        "optB": "was being",
+        "optC": "have been being",
+        "optD": "am",
+        "correctOpt": "D",
+        "explanation": "\"Now\" => hiện tại đơn với động từ to be: I am."
+      },
+      {
+        "orderIndex": 2,
+        "content": "I _______ to New York three times this year.",
+        "optA": "have been",
+        "optB": "was",
+        "optC": "were",
+        "optD": "had been",
+        "correctOpt": "A",
+        "explanation": "\"This year\" + số lần => hiện tại hoàn thành: have been."
+      },
+      {
+        "orderIndex": 3,
+        "content": "\"Are you ready, Ann?\" \"Yes, I _______\"",
+        "optA": "am coming",
+        "optB": "come",
+        "optC": "came",
+        "optD": "have came",
+        "correctOpt": "A",
+        "explanation": "Hành động đang diễn ra ngay lúc nói => hiện tại tiếp diễn: am coming."
+      }
+    ]
+  },
+  "vocabularies": [
+    { "word": "conversation", "meaning": "cuộc hội thoại" },
+    { "word": "ambition", "meaning": "hoài bão, ước mơ, vọng tưởng" },
+    { "word": "get up", "meaning": "thức dậy" }
+  ]
+}

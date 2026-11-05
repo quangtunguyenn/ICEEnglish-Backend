@@ -3,6 +3,7 @@ package com.ice.iceenglish.modules.exams.service;
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ice.iceenglish.modules.exams.dto.AnswersRevealedResponse;
 import com.ice.iceenglish.modules.exams.dto.ExamImportDto;
 import com.ice.iceenglish.modules.exams.dto.ExamImportResponseDto;
 import com.ice.iceenglish.modules.exams.dto.ExamPreviewResponseDto;
@@ -271,6 +272,25 @@ public class ExamService {
         findExam(examId).setStatus(ExamStatus.ARCHIVED);
     }
 
+    @Transactional(readOnly = true)
+    public AnswersRevealedResponse getAnswersRevealed(UUID examId) {
+        Exam exam = findExam(examId);
+        return AnswersRevealedResponse.builder()
+                .id(exam.getId())
+                .answersRevealed(exam.isAnswersRevealed())
+                .build();
+    }
+
+    @Transactional
+    public AnswersRevealedResponse toggleAnswersRevealed(UUID examId) {
+        Exam exam = findExam(examId);
+        exam.setAnswersRevealed(!exam.isAnswersRevealed());
+        return AnswersRevealedResponse.builder()
+                .id(exam.getId())
+                .answersRevealed(exam.isAnswersRevealed())
+                .build();
+    }
+
     // =====================================================================
     // HELPERS
     // =====================================================================
@@ -303,6 +323,15 @@ public class ExamService {
                 .videoId(exam.getVideo() != null ? exam.getVideo().getId() : null)
                 .durationMinutes(exam.getDurationMinutes())
                 .answersRevealed(exam.isAnswersRevealed())
+                .questions(exam.getQuestions().stream().map(q -> ExamResponseDto.QuestionDto.builder()
+                        .id(q.getId())
+                        .orderIndex(q.getOrderIndex())
+                        .content(q.getContent())
+                        .optA(q.getOptA())
+                        .optB(q.getOptB())
+                        .optC(q.getOptC())
+                        .optD(q.getOptD())
+                        .build()).toList())
                 .parts(exam.getParts().stream().map(part -> ExamResponseDto.ExamPartDto.builder()
                         .id(part.getId())
                         .partName(part.getPartName())

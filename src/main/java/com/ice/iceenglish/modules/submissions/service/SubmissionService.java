@@ -4,9 +4,11 @@ import com.ice.iceenglish.modules.exams.entity.Exam;
 import com.ice.iceenglish.modules.exams.entity.ExamPart;
 import com.ice.iceenglish.modules.exams.entity.Question;
 import com.ice.iceenglish.modules.exams.enums.ExamStatus;
+import com.ice.iceenglish.modules.exams.enums.PartType;
 import com.ice.iceenglish.modules.exams.repository.ExamRepository;
 import com.ice.iceenglish.modules.exams.repository.QuestionRepository;
 import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
+import com.ice.iceenglish.modules.submissions.dto.AnswerUrlResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionScoreResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
@@ -22,8 +24,10 @@ import com.ice.iceenglish.modules.videos.repository.VideoRepository;
 import com.ice.iceenglish.modules.users.entity.User;
 import com.ice.iceenglish.modules.users.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -61,7 +65,7 @@ public class SubmissionService {
             throw new IllegalStateException("Đề MOCK chưa có thời lượng hợp lệ.");
         }
         int totalQuestions = questionRepository
-                .findByPartExamIdOrderByOrderIndexAsc(examId).size();
+                .findAllByExamId(examId).size();
 
         if ("MOCK".equals(normalizedMode)) {
             Optional<Submission> existingMock = submissionRepository
@@ -97,6 +101,23 @@ public class SubmissionService {
         return toStartExamResponse(saved, totalQuestions);
     }
 
+    @Transactional
+    public StartExamResponse startHomeworkByVideo(UUID videoId, String username) {
+        Exam homework = findHomeworkByVideo(videoId);
+        return startExam(homework.getId(), username);
+    }
+
+    @Transactional
+    public ExamResultResponse submitHomework(SubmitExamRequest request, String username) {
+        validateRequest(request);
+        Exam homework = examRepository.findById(request.getExamId())
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy homework."));
+        if (homework.getExamType() != com.ice.iceenglish.modules.exams.enums.ExamType.HOMEWORK) {
+            throw new IllegalArgumentException("exam_id không phải là homework.");
+        }
+        return submitExam(request, username);
+    }
+
     @Transactional(readOnly = true)
     public SubmissionScoreResponse getLatestPracticeScore(UUID examId, String username) {
         User user = requireStudentAndGet(username);
@@ -127,6 +148,24 @@ public class SubmissionService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài thi thử đã nộp."));
         List<SubDetail> details = subDetailRepository.findBySubmissionId(submission.getId());
         return toResultResponse(submission, details);
+    }
+
+    @Transactional(readOnly = true)
+    public AnswerUrlResponse getAnswerUrl(UUID examId, String username) {
+        User user = requireStudentAndGet(username);
+        Submission submission = submissionRepository
+                .findFirstByUserIdAndExamIdAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
+                        user.getId(), examId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Chưa tìm thấy bài nộp cho đề thi."));
+        String answerUrl = submission.getExam().getAnswersUrl();
+        if (answerUrl == null || answerUrl.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Đề thi chưa có answer_url.");
+        }
+        return AnswerUrlResponse.builder()
+                .answerUrl(answerUrl)
+                .build();
     }
 
     private boolean isExpired(Submission submission) {
@@ -227,7 +266,7 @@ public class SubmissionService {
         }
 
         List<Question> questions = questionRepository
-                .findByPartExamIdOrderByOrderIndexAsc(submission.getExam().getId());
+                .findAllByExamId(submission.getExam().getId());
         Map<UUID, Question> questionMap = questions.stream()
                 .collect(Collectors.toMap(Question::getId, Function.identity()));
 
@@ -248,6 +287,8 @@ public class SubmissionService {
         
         Map<UUID, Video> videoMap = videoRepository.findAllById(videoIds).stream()
                 .collect(Collectors.toMap(Video::getId, Function.identity()));
+
+        Map<UUID, String> firstQuestionPartTypes = firstQuestionPartTypes(questions);
 
         // Tiến hành chấm điểm từng câu
         for (Question q : questions) {
@@ -287,6 +328,7 @@ public class SubmissionService {
                     .correctOpt(q.getCorrectOpt())
                     .isCorrect(isCorrect)
                     .explanation(q.getExplanation())
+                    .partType(firstQuestionPartTypes.get(q.getId()))
                     .relatedVideo(videoDto) // Gửi kèm video bài giảng nếu câu này có liên kết
                     .build());
         }
@@ -312,8 +354,42 @@ public class SubmissionService {
                 .startedAt(submission.getStartedAt())
                 .submittedAt(submission.getSubmittedAt())
                 .partTimeLogs(partTimeLogs(submission))
+                .partTranslations(partTranslations(submission.getExam()))
                 .details(resultDetails)
                 .build();
+    }
+
+    /** Map questionId -> partType, chỉ cho câu đầu tiên của mỗi part READING_8 / READING_10. */
+    private Map<UUID, String> firstQuestionPartTypes(Collection<Question> questions) {
+        Map<UUID, Question> firstByPart = new HashMap<>();
+        for (Question question : questions) {
+            ExamPart part = question.getPart();
+            if (part == null || (part.getPartType() != PartType.READING_8
+                    && part.getPartType() != PartType.READING_10)) {
+                continue;
+            }
+            firstByPart.merge(part.getId(), question, (current, candidate) ->
+                    candidate.getOrderIndex() < current.getOrderIndex() ? candidate : current);
+        }
+        Map<UUID, String> result = new HashMap<>();
+        firstByPart.values().forEach(question ->
+                result.put(question.getId(), question.getPart().getPartType().name()));
+        return result;
+    }
+
+    private List<ExamResultResponse.PartTranslationDto> partTranslations(Exam exam) {
+        return exam.getParts().stream()
+                .filter(part -> (part.getPartType() == PartType.READING_8
+                        || part.getPartType() == PartType.READING_10)
+                        && (part.getPassageText() != null || part.getTranslate() != null))
+                .map(part -> ExamResultResponse.PartTranslationDto.builder()
+                        .partId(part.getId())
+                        .partName(part.getPartName())
+                        .partType(part.getPartType().name())
+                        .passageText(part.getPassageText())
+                        .translate(part.getTranslate())
+                        .build())
+                .toList();
     }
 
     private void validateRequest(SubmitExamRequest request) {
@@ -324,6 +400,15 @@ public class SubmissionService {
         if (request.getExamId() == null) {
             throw new IllegalArgumentException("exam_id là bắt buộc.");
         }
+    }
+
+    private Exam findHomeworkByVideo(UUID videoId) {
+        return examRepository.findByVideoIdAndExamTypeWithParts(
+                        videoId, com.ice.iceenglish.modules.exams.enums.ExamType.HOMEWORK)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Không tìm thấy homework của video."));
     }
 
     private void requireStudent(String username) {
@@ -366,6 +451,8 @@ public class SubmissionService {
                         .collect(Collectors.toSet()))
                 .stream()
                 .collect(Collectors.toMap(Video::getId, Function.identity()));
+        Map<UUID, String> firstQuestionPartTypes = firstQuestionPartTypes(
+                details.stream().map(SubDetail::getQuestion).toList());
         List<ExamResultResponse.QuestionResultDto> resultDetails = details.stream()
                 .map(detail -> {
                     Question question = detail.getQuestion();
@@ -387,6 +474,7 @@ public class SubmissionService {
                             .correctOpt(question.getCorrectOpt())
                             .isCorrect(detail.getIsCorrect())
                             .explanation(question.getExplanation())
+                            .partType(firstQuestionPartTypes.get(question.getId()))
                             .relatedVideo(videoDto)
                             .build();
                 })
@@ -404,6 +492,7 @@ public class SubmissionService {
                 .startedAt(submission.getStartedAt())
                 .submittedAt(submission.getSubmittedAt())
                 .partTimeLogs(partTimeLogs(submission))
+                .partTranslations(partTranslations(submission.getExam()))
                 .details(resultDetails)
                 .build();
     }

@@ -17,6 +17,5 @@ public interface VideoRepository extends JpaRepository<Video, UUID> {
 
     List<Video> findByTitleContainingIgnoreCaseOrderByTitleAsc(String title);
 
-    @Query("SELECT DISTINCT v.title FROM Video v ORDER BY v.title ASC")
-    List<String> findAllTitles();
+    List<Video> findAllByOrderByTitleAsc();
 }

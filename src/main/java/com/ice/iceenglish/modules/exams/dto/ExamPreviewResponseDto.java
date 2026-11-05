@@ -20,6 +20,7 @@ public class ExamPreviewResponseDto {
     private ExamStatus status;
     private Integer durationMinutes;
     private boolean answersRevealed;
+    private String answersUrl;
     private String createdBy;
     private List<PartDto> parts;
 

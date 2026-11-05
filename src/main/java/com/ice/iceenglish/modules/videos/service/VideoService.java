@@ -1,17 +1,28 @@
 package com.ice.iceenglish.modules.videos.service;
 
+import com.fasterxml.jackson.core.JsonLocation;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.web.multipart.MultipartFile;
 import com.ice.iceenglish.modules.exams.entity.Exam;
 import com.ice.iceenglish.modules.exams.entity.ExamPart;
 import com.ice.iceenglish.modules.exams.entity.Question;
 import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
 import com.ice.iceenglish.modules.exams.enums.PartType;
+import com.ice.iceenglish.modules.exams.repository.ExamPartRepository;
 import com.ice.iceenglish.modules.exams.repository.ExamRepository;
+import com.ice.iceenglish.modules.exams.dto.ExamResponseDto;
+import com.ice.iceenglish.modules.learning.dto.VocabularyResponseDto;
 import com.ice.iceenglish.modules.learning.dto.CreateVideoLearningBundleRequest;
 import com.ice.iceenglish.modules.learning.dto.CreateVideoLearningBundleResponse;
 import com.ice.iceenglish.modules.learning.entity.Vocabulary;
 import com.ice.iceenglish.modules.learning.repository.VocabularyRepository;
+import com.ice.iceenglish.modules.videos.dto.HomeworkAnswersResponse;
+import com.ice.iceenglish.modules.videos.dto.VideoDocumentResponse;
+import com.ice.iceenglish.modules.videos.dto.VideoLearningContentResponse;
 import com.ice.iceenglish.modules.videos.dto.VideoResponseDto;
+import com.ice.iceenglish.modules.videos.dto.VideoTitleResponse;
 import com.ice.iceenglish.modules.videos.entity.Video;
 import com.ice.iceenglish.modules.videos.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +30,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
 @Service
@@ -29,7 +44,29 @@ public class VideoService {
 
     private final VideoRepository videoRepository;
     private final ExamRepository examRepository;
+    private final ExamPartRepository examPartRepository;
     private final VocabularyRepository vocabularyRepository;
+    private final ObjectMapper objectMapper;
+
+    @Transactional
+    public CreateVideoLearningBundleResponse createLearningBundle(
+            MultipartFile file, String createdBy) {
+        if (file == null || file.isEmpty()) {
+            throw validation("file: bắt buộc và không được rỗng.");
+        }
+        CreateVideoLearningBundleRequest request;
+        try (InputStream in = file.getInputStream()) {
+            request = objectMapper.readValue(in, CreateVideoLearningBundleRequest.class);
+        } catch (JsonProcessingException e) {
+            JsonLocation loc = e.getLocation();
+            String where = loc != null
+                    ? " (dòng " + loc.getLineNr() + ", cột " + loc.getColumnNr() + ")" : "";
+            throw validation("JSON không hợp lệ" + where + ": " + e.getOriginalMessage());
+        } catch (IOException e) {
+            throw validation("Không đọc được file upload: " + e.getMessage());
+        }
+        return createLearningBundle(request, createdBy);
+    }
 
     @Transactional
     public CreateVideoLearningBundleResponse createLearningBundle(
@@ -43,7 +80,8 @@ public class VideoService {
                 .documentUrl(blankToNull(videoInfo.getDocumentUrl()))
                 .build());
 
-        Exam homework = toHomework(request.getHomework(), video, createdBy);
+        Exam homework = toHomework(
+                request.getHomework(), video, createdBy, videoInfo.getAnswersUrl());
         List<Vocabulary> vocabularies = request.getVocabularies().stream()
                 .map(item -> Vocabulary.builder()
                         .video(video)
@@ -63,14 +101,16 @@ public class VideoService {
     }
 
     private Exam toHomework(CreateVideoLearningBundleRequest.HomeworkInfo request,
-                            Video video, String createdBy) {
+                            Video video, String createdBy, String videoAnswersUrl) {
         if (request == null || isBlank(request.getTitle())) {
             throw validation("homework.title: bắt buộc.");
         }
         Exam homework = Exam.builder()
                 .title(request.getTitle().trim())
                 .examType(ExamType.HOMEWORK)
-                .status(ExamStatus.DRAFT)
+                .status(ExamStatus.PUBLISHED)
+                .answersUrl(blankToNull(!isBlank(request.getAnswersUrl())
+                        ? request.getAnswersUrl() : videoAnswersUrl))
                 .createdBy(createdBy)
                 .video(video)
                 .build();
@@ -78,11 +118,6 @@ public class VideoService {
         if (request.getQuestions() == null || request.getQuestions().isEmpty()) {
             throw validation("homework.questions: phải có ít nhất 1 câu.");
         }
-        ExamPart part = ExamPart.builder()
-                .partType(PartType.GRAMMAR)
-                .partName("Grammar")
-                .orderIndex(1)
-                .build();
         for (CreateVideoLearningBundleRequest.QuestionInfo questionInfo : request.getQuestions()) {
             if (questionInfo == null || isBlank(questionInfo.getContent())
                     || questionInfo.getOptions() == null
@@ -98,7 +133,7 @@ public class VideoService {
             if (List.of("A", "B", "C", "D").stream().anyMatch(key -> isBlank(options.get(key)))) {
                 throw validation("homework.questions.options: phải có đủ A, B, C và D.");
             }
-            part.addQuestion(Question.builder()
+            homework.addQuestion(Question.builder()
                     .content(questionInfo.getContent().trim())
                     .optA(options.get("A").trim())
                     .optB(options.get("B").trim())
@@ -110,7 +145,6 @@ public class VideoService {
                     .orderIndex(questionInfo.getOrderIndex())
                     .build());
         }
-        homework.addPart(part);
         return homework;
     }
 
@@ -146,6 +180,128 @@ public class VideoService {
     }
 
     @Transactional(readOnly = true)
+    public VideoLearningContentResponse getLearningContent(UUID videoId) {
+        Video video = findVideo(videoId);
+        ExamResponseDto homework = findHomework(videoId);
+        return VideoLearningContentResponse.builder()
+                .videoId(video.getId())
+                .title(video.getTitle())
+                .videoUrl(video.getVideoUrl())
+                .documentUrl(video.getDocumentUrl())
+                .homework(homework)
+                .vocabularies(getVocabularies(videoId))
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public VideoDocumentResponse getDocument(UUID videoId) {
+        Video video = findVideo(videoId);
+        return VideoDocumentResponse.builder()
+                .videoId(video.getId())
+                .documentUrl(video.getDocumentUrl())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public ExamResponseDto getHomework(UUID videoId) {
+        findVideo(videoId);
+        ExamResponseDto homework = findHomework(videoId);
+        if (homework == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Không tìm thấy homework của video: " + videoId);
+        }
+        return homework;
+    }
+
+    @Transactional(readOnly = true)
+    public HomeworkAnswersResponse getHomeworkAnswers(UUID videoId) {
+        findVideo(videoId);
+        Exam homework = findHomeworkEntity(videoId);
+        if (homework == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Không tìm thấy homework của video: " + videoId);
+        }
+        return HomeworkAnswersResponse.builder()
+                .videoId(videoId)
+                .homeworkId(homework.getId())
+                .answersUrl(homework.getAnswersUrl())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<VocabularyResponseDto> getVocabularies(UUID videoId) {
+        findVideo(videoId);
+        return vocabularyRepository.findByVideoIdOrderByCreatedAtAsc(videoId).stream()
+                .map(item -> VocabularyResponseDto.builder()
+                        .id(item.getId())
+                        .word(item.getWord())
+                        .meaning(item.getMeaning())
+                        .build())
+                .toList();
+    }
+
+    private Video findVideo(UUID videoId) {
+        return videoRepository.findById(videoId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Không tìm thấy video: " + videoId));
+    }
+
+    private Exam findHomeworkEntity(UUID videoId) {
+        return examRepository.findByVideoIdAndExamTypeWithParts(videoId, ExamType.HOMEWORK)
+                .stream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    private ExamResponseDto findHomework(UUID videoId) {
+        Exam homework = findHomeworkEntity(videoId);
+        return homework == null ? null : toStudentDto(homework);
+    }
+
+    private ExamResponseDto toStudentDto(Exam exam) {
+        return ExamResponseDto.builder()
+                .id(exam.getId())
+                .title(exam.getTitle())
+                .examType(exam.getExamType())
+                .videoId(exam.getVideo() != null ? exam.getVideo().getId() : null)
+                .durationMinutes(exam.getDurationMinutes())
+                .answersRevealed(exam.isAnswersRevealed())
+                .answersUrl(exam.getAnswersUrl())
+                .questions(exam.getQuestions().stream().map(question ->
+                        ExamResponseDto.QuestionDto.builder()
+                                .id(question.getId())
+                                .orderIndex(question.getOrderIndex())
+                                .content(question.getContent())
+                                .optA(question.getOptA())
+                                .optB(question.getOptB())
+                                .optC(question.getOptC())
+                                .optD(question.getOptD())
+                                .build())
+                        .toList())
+                .parts(exam.getParts().stream().map(part -> ExamResponseDto.ExamPartDto.builder()
+                        .id(part.getId())
+                        .partName(part.getPartName())
+                        .partType(part.getPartType())
+                        .passageText(part.getPassageText())
+                        .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
+                        .orderIndex(part.getOrderIndex())
+                        .questions(part.getQuestions().stream().map(question ->
+                                ExamResponseDto.QuestionDto.builder()
+                                        .id(question.getId())
+                                        .orderIndex(question.getOrderIndex())
+                                        .content(question.getContent())
+                                        .optA(question.getOptA())
+                                        .optB(question.getOptB())
+                                        .optC(question.getOptC())
+                                        .optD(question.getOptD())
+                                        .build())
+                                .toList())
+                        .build())
+                        .toList())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
     public List<VideoResponseDto> getAll(String title) {
         List<Video> videos = title == null || title.isBlank()
                 ? videoRepository.findAll()
@@ -165,8 +321,13 @@ public class VideoService {
     }
 
     @Transactional(readOnly = true)
-    public List<String> getAllTitles() {
-        return videoRepository.findAllTitles();
+    public List<VideoTitleResponse> getAllTitles() {
+        return videoRepository.findAllByOrderByTitleAsc().stream()
+                .map(video -> VideoTitleResponse.builder()
+                        .videoId(video.getId())
+                        .title(video.getTitle())
+                        .build())
+                .toList();
     }
 
     private static VideoResponseDto toDto(Video video) {
