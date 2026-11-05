@@ -25,7 +25,8 @@ import com.ice.iceenglish.modules.videos.dto.VideoResponseDto;
 import com.ice.iceenglish.modules.videos.dto.VideoTitleResponse;
 import com.ice.iceenglish.modules.videos.entity.Video;
 import com.ice.iceenglish.modules.videos.repository.VideoRepository;
-import lombok.RequiredArgsConstructor;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.ice.iceenglish.core.cache.CacheRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -39,7 +40,6 @@ import org.springframework.http.HttpStatus;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
 @Service
-@RequiredArgsConstructor
 public class VideoService {
 
     private final VideoRepository videoRepository;
@@ -47,6 +47,34 @@ public class VideoService {
     private final ExamPartRepository examPartRepository;
     private final VocabularyRepository vocabularyRepository;
     private final ObjectMapper objectMapper;
+    private final CacheRegistry cacheRegistry;
+
+    // Nội dung video/homework/từ vựng chỉ đổi khi giáo viên tạo bundle hoặc đổi trạng thái đề; xem CacheRegistry.
+    private final Cache<UUID, VideoLearningContentResponse> learningContentCache;
+    private final Cache<UUID, VideoDocumentResponse> documentCache;
+    private final Cache<UUID, ExamResponseDto> homeworkCache;
+    private final Cache<UUID, HomeworkAnswersResponse> homeworkAnswersCache;
+    private final Cache<UUID, List<VocabularyResponseDto>> vocabulariesCache;
+    private final Cache<String, List<VideoResponseDto>> videoListCache;
+    private final Cache<String, List<VideoTitleResponse>> videoTitlesCache;
+
+    public VideoService(VideoRepository videoRepository, ExamRepository examRepository,
+                        ExamPartRepository examPartRepository, VocabularyRepository vocabularyRepository,
+                        ObjectMapper objectMapper, CacheRegistry cacheRegistry) {
+        this.videoRepository = videoRepository;
+        this.examRepository = examRepository;
+        this.examPartRepository = examPartRepository;
+        this.vocabularyRepository = vocabularyRepository;
+        this.objectMapper = objectMapper;
+        this.cacheRegistry = cacheRegistry;
+        this.learningContentCache = cacheRegistry.create(1_000);
+        this.documentCache = cacheRegistry.create(1_000);
+        this.homeworkCache = cacheRegistry.create(1_000);
+        this.homeworkAnswersCache = cacheRegistry.create(1_000);
+        this.vocabulariesCache = cacheRegistry.create(1_000);
+        this.videoListCache = cacheRegistry.create(4);
+        this.videoTitlesCache = cacheRegistry.create(4);
+    }
 
     @Transactional
     public CreateVideoLearningBundleResponse createLearningBundle(
@@ -92,6 +120,7 @@ public class VideoService {
 
         Exam savedHomework = examRepository.save(homework);
         vocabularyRepository.saveAll(vocabularies);
+        cacheRegistry.evictAllAfterCommit();
 
         return CreateVideoLearningBundleResponse.builder()
                 .videoId(video.getId())
@@ -179,57 +208,64 @@ public class VideoService {
         return new ResponseStatusException(BAD_REQUEST, message);
     }
 
-    @Transactional(readOnly = true)
     public VideoLearningContentResponse getLearningContent(UUID videoId) {
-        Video video = findVideo(videoId);
-        ExamResponseDto homework = findHomework(videoId);
-        return VideoLearningContentResponse.builder()
-                .videoId(video.getId())
-                .title(video.getTitle())
-                .videoUrl(video.getVideoUrl())
-                .documentUrl(video.getDocumentUrl())
-                .homework(homework)
-                .vocabularies(getVocabularies(videoId))
-                .build();
+        return cacheRegistry.getOrLoad(learningContentCache, videoId, () -> {
+            Video video = findVideo(videoId);
+            ExamResponseDto homework = findHomework(videoId);
+            return VideoLearningContentResponse.builder()
+                    .videoId(video.getId())
+                    .title(video.getTitle())
+                    .videoUrl(video.getVideoUrl())
+                    .documentUrl(video.getDocumentUrl())
+                    .homework(homework)
+                    .vocabularies(loadVocabularies(videoId))
+                    .build();
+        });
     }
 
-    @Transactional(readOnly = true)
     public VideoDocumentResponse getDocument(UUID videoId) {
-        Video video = findVideo(videoId);
-        return VideoDocumentResponse.builder()
-                .videoId(video.getId())
-                .documentUrl(video.getDocumentUrl())
-                .build();
+        return cacheRegistry.getOrLoad(documentCache, videoId, () -> {
+            Video video = findVideo(videoId);
+            return VideoDocumentResponse.builder()
+                    .videoId(video.getId())
+                    .documentUrl(video.getDocumentUrl())
+                    .build();
+        });
     }
 
-    @Transactional(readOnly = true)
     public ExamResponseDto getHomework(UUID videoId) {
-        findVideo(videoId);
-        ExamResponseDto homework = findHomework(videoId);
-        if (homework == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
-                    "Không tìm thấy homework của video: " + videoId);
-        }
-        return homework;
+        return cacheRegistry.getOrLoad(homeworkCache, videoId, () -> {
+            findVideo(videoId);
+            ExamResponseDto homework = findHomework(videoId);
+            if (homework == null) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Không tìm thấy homework của video: " + videoId);
+            }
+            return homework;
+        });
     }
 
-    @Transactional(readOnly = true)
     public HomeworkAnswersResponse getHomeworkAnswers(UUID videoId) {
-        findVideo(videoId);
-        Exam homework = findHomeworkEntity(videoId);
-        if (homework == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
-                    "Không tìm thấy homework của video: " + videoId);
-        }
-        return HomeworkAnswersResponse.builder()
-                .videoId(videoId)
-                .homeworkId(homework.getId())
-                .answersUrl(homework.getAnswersUrl())
-                .build();
+        return cacheRegistry.getOrLoad(homeworkAnswersCache, videoId, () -> {
+            findVideo(videoId);
+            Exam homework = findHomeworkEntity(videoId);
+            if (homework == null) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Không tìm thấy homework của video: " + videoId);
+            }
+            return HomeworkAnswersResponse.builder()
+                    .videoId(videoId)
+                    .homeworkId(homework.getId())
+                    .answersUrl(homework.getAnswersUrl())
+                    .build();
+        });
     }
 
-    @Transactional(readOnly = true)
     public List<VocabularyResponseDto> getVocabularies(UUID videoId) {
+        return cacheRegistry.getOrLoad(vocabulariesCache, videoId, () -> loadVocabularies(videoId));
+    }
+
+    private List<VocabularyResponseDto> loadVocabularies(UUID videoId) {
         findVideo(videoId);
         return vocabularyRepository.findByVideoIdOrderByCreatedAtAsc(videoId).stream()
                 .map(item -> VocabularyResponseDto.builder()
@@ -301,12 +337,12 @@ public class VideoService {
                 .build();
     }
 
-    @Transactional(readOnly = true)
     public List<VideoResponseDto> getAll(String title) {
-        List<Video> videos = title == null || title.isBlank()
-                ? videoRepository.findAll()
-                : videoRepository.findByTitleContainingIgnoreCaseOrderByTitleAsc(title.trim());
-        return videos.stream().map(VideoService::toDto).toList();
+        if (title == null || title.isBlank()) {
+            return cacheRegistry.getOrLoad(videoListCache, "ALL",
+                    () -> videoRepository.findAll().stream().map(VideoService::toDto).toList());
+        }
+        return findByTitleQuery(title);
     }
 
     @Transactional(readOnly = true)
@@ -314,20 +350,24 @@ public class VideoService {
         if (title == null || title.isBlank()) {
             return List.of();
         }
+        return findByTitleQuery(title);
+    }
+
+    private List<VideoResponseDto> findByTitleQuery(String title) {
         return videoRepository.findByTitleContainingIgnoreCaseOrderByTitleAsc(title.trim())
                 .stream()
                 .map(VideoService::toDto)
                 .toList();
     }
 
-    @Transactional(readOnly = true)
     public List<VideoTitleResponse> getAllTitles() {
-        return videoRepository.findAllByOrderByTitleAsc().stream()
-                .map(video -> VideoTitleResponse.builder()
-                        .videoId(video.getId())
-                        .title(video.getTitle())
-                        .build())
-                .toList();
+        return cacheRegistry.getOrLoad(videoTitlesCache, "ALL", () ->
+                videoRepository.findAllByOrderByTitleAsc().stream()
+                        .map(video -> VideoTitleResponse.builder()
+                                .videoId(video.getId())
+                                .title(video.getTitle())
+                                .build())
+                        .toList());
     }
 
     private static VideoResponseDto toDto(Video video) {

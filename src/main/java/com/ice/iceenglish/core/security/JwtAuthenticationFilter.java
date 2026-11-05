@@ -1,7 +1,5 @@
 package com.ice.iceenglish.core.security;
 
-import com.ice.iceenglish.modules.users.entity.User;
-import com.ice.iceenglish.modules.users.repository.UserRepository;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -33,7 +31,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final Set<String> ALLOWED_ROLES = Set.of("STUDENT", "TEACHER", "ADMIN");
 
     private final JwtService jwtService;
-    private final UserRepository userRepository;
+    private final UserRoleCache userRoleCache;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) throws ServletException {
@@ -73,8 +71,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            String role = userRepository.findByUsername(username)
-                    .map(User::getRole)
+            String role = userRoleCache.findRole(username)
                     .map(this::normalizeRole)
                     .orElse(null);
 

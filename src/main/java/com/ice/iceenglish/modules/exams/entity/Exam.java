@@ -20,7 +20,10 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 @Entity
-@Table(name = "exams")
+@Table(name = "exams", indexes = {
+        @Index(name = "idx_exams_video_type", columnList = "video_id, exam_type"),
+        @Index(name = "idx_exams_status_created", columnList = "status, created_at")
+})
 public class Exam {
 
     @Id

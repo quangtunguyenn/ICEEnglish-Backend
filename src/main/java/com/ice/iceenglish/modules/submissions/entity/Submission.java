@@ -15,7 +15,10 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 @Entity
-@Table(name = "submissions")
+@Table(name = "submissions", indexes = {
+        @Index(name = "idx_submissions_user_exam_mode", columnList = "user_id, exam_id, mode, started_at"),
+        @Index(name = "idx_submissions_user_mode_submitted", columnList = "user_id, mode, submitted_at")
+})
 public class Submission {
 
     @Id

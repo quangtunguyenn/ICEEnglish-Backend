@@ -13,7 +13,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 @Entity
-@Table(name = "vocabularies")
+@Table(name = "vocabularies", indexes = @Index(name = "idx_vocabularies_video", columnList = "video_id"))
 public class Vocabulary {
 
     @Id

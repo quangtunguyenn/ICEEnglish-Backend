@@ -13,7 +13,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 @Entity
-@Table(name = "sub_details")
+@Table(name = "sub_details", indexes = @Index(name = "idx_sub_details_submission", columnList = "submission_id"))
 public class SubDetail {
 
     @Id

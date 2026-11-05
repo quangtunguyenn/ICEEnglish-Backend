@@ -3,6 +3,8 @@ package com.ice.iceenglish.modules.exams.service;
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.ice.iceenglish.core.cache.CacheRegistry;
 import com.ice.iceenglish.modules.exams.dto.AnswersRevealedResponse;
 import com.ice.iceenglish.modules.exams.dto.ExamImportDto;
 import com.ice.iceenglish.modules.exams.dto.ExamImportResponseDto;
@@ -23,7 +25,9 @@ import com.ice.iceenglish.modules.videos.entity.Video;
 import com.ice.iceenglish.modules.videos.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -34,7 +38,6 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class ExamService {
 
     private final ExamRepository examRepository;
@@ -42,6 +45,27 @@ public class ExamService {
     private final VideoRepository videoRepository;
     private final ExamImportValidator importValidator;
     private final ObjectMapper objectMapper;
+    private final CacheRegistry cacheRegistry;
+    private final TransactionTemplate readOnlyTx;
+
+    private final Cache<UUID, ExamResponseDto> studentExamCache;
+    private final Cache<String, List<ExamResponseDto>> publishedListCache;
+
+    public ExamService(ExamRepository examRepository, ExamPartRepository examPartRepository,
+                       VideoRepository videoRepository, ExamImportValidator importValidator,
+                       ObjectMapper objectMapper, CacheRegistry cacheRegistry,
+                       PlatformTransactionManager transactionManager) {
+        this.examRepository = examRepository;
+        this.examPartRepository = examPartRepository;
+        this.videoRepository = videoRepository;
+        this.importValidator = importValidator;
+        this.objectMapper = objectMapper;
+        this.cacheRegistry = cacheRegistry;
+        this.readOnlyTx = new TransactionTemplate(transactionManager);
+        this.readOnlyTx.setReadOnly(true);
+        this.studentExamCache = cacheRegistry.create(500);
+        this.publishedListCache = cacheRegistry.create(8);
+    }
 
     // =====================================================================
     // IMPORT
@@ -210,9 +234,16 @@ public class ExamService {
     /**
      * Đề cho học sinh làm bài (không có đáp án). Học sinh chỉ thấy đề PUBLISHED;
      * đề chưa publish trả 404 để không lộ sự tồn tại của nó.
+     * Đề của học sinh được cache (nội dung bất biến, trạng thái đổi thì cache bị xoá).
      */
-    @Transactional(readOnly = true)
     public ExamResponseDto getExamDetail(UUID examId, boolean staff) {
+        if (staff) {
+            return readOnlyTx.execute(status -> loadExamDetail(examId, true));
+        }
+        return cacheRegistry.getOrLoad(studentExamCache, examId, () -> loadExamDetail(examId, false));
+    }
+
+    private ExamResponseDto loadExamDetail(UUID examId, boolean staff) {
         Exam exam = findWithParts(examId);
         if (!staff && exam.getStatus() != ExamStatus.PUBLISHED) {
             throw examNotFound(examId);
@@ -222,13 +253,16 @@ public class ExamService {
         return toStudentDto(exam);
     }
 
-    @Transactional(readOnly = true)
     public List<ExamResponseDto> listPublishedExams() {
         return listPublishedExams(null);
     }
 
-    @Transactional(readOnly = true)
     public List<ExamResponseDto> listPublishedExams(ExamType examType) {
+        String key = examType == null ? "ALL" : examType.name();
+        return cacheRegistry.getOrLoad(publishedListCache, key, () -> loadPublishedExams(examType));
+    }
+
+    private List<ExamResponseDto> loadPublishedExams(ExamType examType) {
         List<Exam> exams = examType == null
                 ? examRepository.findByStatusOrderByCreatedAtDesc(ExamStatus.PUBLISHED)
                 : examRepository.findByStatusAndExamTypeOrderByCreatedAtDesc(
@@ -265,11 +299,13 @@ public class ExamService {
             throw new ConflictException("Đề thi đã được lưu trữ nên không thể xuất bản.");
         }
         exam.setStatus(ExamStatus.PUBLISHED);
+        cacheRegistry.evictAllAfterCommit();
     }
 
     @Transactional
     public void archive(UUID examId) {
         findExam(examId).setStatus(ExamStatus.ARCHIVED);
+        cacheRegistry.evictAllAfterCommit();
     }
 
     @Transactional(readOnly = true)
@@ -285,6 +321,7 @@ public class ExamService {
     public AnswersRevealedResponse toggleAnswersRevealed(UUID examId) {
         Exam exam = findExam(examId);
         exam.setAnswersRevealed(!exam.isAnswersRevealed());
+        cacheRegistry.evictAllAfterCommit();
         return AnswersRevealedResponse.builder()
                 .id(exam.getId())
                 .answersRevealed(exam.isAnswersRevealed())
