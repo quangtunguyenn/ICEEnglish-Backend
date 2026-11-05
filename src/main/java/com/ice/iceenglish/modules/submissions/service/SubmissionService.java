@@ -133,6 +133,37 @@ public class SubmissionService {
         return toScoreResponse(submission);
     }
 
+    /** Chi tiết bài luyện đề (GENERAL_EXAM) gần nhất; chỉ lộ đáp án đúng/lời giải khi đề đã công bố đáp án. */
+    @Transactional(readOnly = true)
+    public ExamResultResponse reviewLatestPractice(UUID examId, String username) {
+        User user = requireStudentAndGet(username);
+        Submission submission = submissionRepository
+                .findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
+                        user.getId(), examId, "GENERAL_EXAM")
+                .orElseThrow(() -> new IllegalArgumentException("Chưa có kết quả luyện đề."));
+        List<SubmissionAnswer> answers = subDetailRepository.findAnswersBySubmissionId(submission.getId());
+        ExamResultResponse result = toResultResponse(submission, answers);
+        if (!submission.getExam().isAnswersRevealed()) {
+            result.getDetails().forEach(d -> {
+                d.setCorrectOpt(null);
+                d.setExplanation(null);
+                d.setRelatedVideo(null);
+            });
+        }
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public ExamResultResponse reviewLatestHomework(UUID examId, String username) {
+        User user = requireStudentAndGet(username);
+        Submission submission = submissionRepository
+                .findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
+                        user.getId(), examId, "HOMEWORK")
+                .orElseThrow(() -> new IllegalArgumentException("Chưa có kết quả bài tập về nhà."));
+        List<SubmissionAnswer> answers = subDetailRepository.findAnswersBySubmissionId(submission.getId());
+        return toResultResponse(submission, answers);
+    }
+
     @Transactional(readOnly = true)
     public List<SubmissionScoreResponse> getMockScores(String username) {
         User user = requireStudentAndGet(username);

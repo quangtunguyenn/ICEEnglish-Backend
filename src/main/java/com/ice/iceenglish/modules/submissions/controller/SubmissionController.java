@@ -29,6 +29,20 @@ public class SubmissionController {
                                 submissionService.getLatestPracticeScore(examId, authentication.getName()));
         }
 
+        @GetMapping("/practice/{examId}/latest-review")
+        public ResponseEntity<ExamResultResponse> getLatestPracticeReview(
+                        @PathVariable UUID examId, Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.reviewLatestPractice(examId, authentication.getName()));
+        }
+
+        @GetMapping("/homework/{examId}/latest-review")
+        public ResponseEntity<ExamResultResponse> getLatestHomeworkReview(
+                        @PathVariable UUID examId, Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.reviewLatestHomework(examId, authentication.getName()));
+        }
+
         @GetMapping("/mock/scores")
         public ResponseEntity<List<SubmissionScoreResponse>> getMockScores(
                         Authentication authentication) {
