@@ -2,6 +2,8 @@ package com.ice.iceenglish.modules.submissions.repository;
 
 import com.ice.iceenglish.modules.submissions.entity.Submission;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -29,6 +31,18 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
 
     Optional<Submission> findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
             UUID userId, UUID examId, String mode);
+
+    Page<Submission> findByUserUsernameAndExamIdAndModeAndSubmittedAtIsNotNull(
+            String username, UUID examId, String mode, Pageable pageable);
+
+    Optional<Submission> findByIdAndUserUsernameAndModeAndSubmittedAtIsNotNull(
+            UUID id, String username, String mode);
+
+    @Query("select distinct s.exam.id from Submission s "
+            + "where s.user.username = :username and s.exam.id in :examIds "
+            + "and s.mode = 'GENERAL_EXAM' and s.submittedAt is not null")
+    List<UUID> findSubmittedPracticeExamIds(
+            @Param("username") String username, @Param("examIds") List<UUID> examIds);
 
     Optional<Submission> findFirstByUserIdAndExamIdAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
             UUID userId, UUID examId);

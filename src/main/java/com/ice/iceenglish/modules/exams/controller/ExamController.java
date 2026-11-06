@@ -6,6 +6,7 @@ import com.ice.iceenglish.modules.exams.dto.ExamPreviewResponseDto;
 import com.ice.iceenglish.modules.exams.dto.ExamResponseDto;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
 import com.ice.iceenglish.modules.exams.service.ExamService;
+import com.ice.iceenglish.modules.submissions.service.SubmissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +33,7 @@ public class ExamController {
             Set.of("ADMIN", "TEACHER", "ROLE_ADMIN", "ROLE_TEACHER");
 
     private final ExamService examService;
+    private final SubmissionService submissionService;
 
     /**
      * Import đề từ file JSON (multipart/form-data).
@@ -64,8 +66,24 @@ public class ExamController {
      */
     @GetMapping
     public ResponseEntity<java.util.List<ExamResponseDto>> listPublishedExams(
-            @RequestParam(value = "mode", required = false) ExamType mode) {
-        return ResponseEntity.ok(examService.listPublishedExams(mode));
+            @RequestParam(value = "mode", required = false) ExamType mode,
+            Authentication authentication) {
+        java.util.List<ExamResponseDto> exams = examService.listPublishedExams(mode);
+        Set<UUID> practiceExamIds = exams.stream()
+                .filter(exam -> exam.getExamType() == ExamType.GENERAL_EXAM)
+                .map(ExamResponseDto::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        Set<UUID> submittedPracticeExamIds = isStudent(authentication)
+                ? submissionService.getSubmittedPracticeExamIds(
+                        authentication.getName(), practiceExamIds)
+                : Set.of();
+        return ResponseEntity.ok(exams.stream()
+                .map(exam -> exam.toBuilder()
+                        .hasSubmitted(exam.getExamType() == ExamType.GENERAL_EXAM
+                                ? submittedPracticeExamIds.contains(exam.getId())
+                                : null)
+                        .build())
+                .toList());
     }
 
     @GetMapping("/{id}")
@@ -111,5 +129,12 @@ public class ExamController {
         return authentication != null && authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(STAFF_AUTHORITIES::contains);
+    }
+
+    private boolean isStudent(Authentication authentication) {
+        return authentication != null && authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(authority -> "STUDENT".equals(authority)
+                        || "ROLE_STUDENT".equals(authority));
     }
 }

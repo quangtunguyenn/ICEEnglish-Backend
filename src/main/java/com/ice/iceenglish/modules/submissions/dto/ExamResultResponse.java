@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,7 +20,7 @@ public class ExamResultResponse {
     private Integer totalIncorrect;
     private Double score; // Điểm số: mỗi câu đúng được 0.25 điểm
     private LocalDateTime startedAt;
-    private LocalDateTime submittedAt;
+    private OffsetDateTime submittedAt;
     private List<PartTimeLogDto> partTimeLogs;
     private List<QuestionResultDto> details;
 

@@ -3,6 +3,7 @@ package com.ice.iceenglish.modules.submissions.controller;
 import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
 import com.ice.iceenglish.modules.submissions.dto.HomeworkReviewResponse;
 import com.ice.iceenglish.modules.submissions.dto.AnswerUrlResponse;
+import com.ice.iceenglish.modules.submissions.dto.PracticeHistoryResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.dto.TrackPartTimeRequest;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
@@ -28,6 +29,26 @@ public class SubmissionController {
                         @PathVariable UUID examId, Authentication authentication) {
                 return ResponseEntity.ok(
                                 submissionService.getLatestPracticeScore(examId, authentication.getName()));
+        }
+
+        @GetMapping("/practice/{examId}/history")
+        public ResponseEntity<PracticeHistoryResponse> getPracticeHistory(
+                        @PathVariable UUID examId,
+                        @RequestParam(defaultValue = "0") int page,
+                        @RequestParam(defaultValue = "20") int size,
+                        Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.getPracticeHistory(
+                                                examId, authentication.getName(), page, size));
+        }
+
+        @GetMapping("/practice/{submissionId}/review")
+        public ResponseEntity<ExamResultResponse> reviewPracticeSubmission(
+                        @PathVariable UUID submissionId,
+                        Authentication authentication) {
+                return ResponseEntity.ok(
+                                submissionService.reviewPracticeSubmission(
+                                                submissionId, authentication.getName()));
         }
 
         @GetMapping("/practice/{examId}/latest-review")

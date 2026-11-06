@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,7 +17,7 @@ public record HomeworkReviewResponse(
         Integer totalIncorrect,
         Double score,
         LocalDateTime startedAt,
-        LocalDateTime submittedAt,
+        OffsetDateTime submittedAt,
         List<ExamResultResponse.PartTimeLogDto> partTimeLogs,
         List<QuestionResult> details,
         List<ExamResultResponse.PartTranslationDto> partTranslations) {

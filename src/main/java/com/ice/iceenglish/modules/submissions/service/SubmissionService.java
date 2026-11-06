@@ -12,6 +12,7 @@ import com.ice.iceenglish.modules.exams.service.ExamSnapshotService;
 import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
 import com.ice.iceenglish.modules.submissions.dto.HomeworkReviewResponse;
 import com.ice.iceenglish.modules.submissions.dto.AnswerUrlResponse;
+import com.ice.iceenglish.modules.submissions.dto.PracticeHistoryResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionAnswer;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionScoreResponse;
@@ -27,12 +28,18 @@ import com.ice.iceenglish.modules.users.entity.User;
 import com.ice.iceenglish.modules.users.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -146,6 +153,73 @@ public class SubmissionService {
                 .findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
                         user.getId(), examId, "GENERAL_EXAM")
                 .orElseThrow(() -> new IllegalArgumentException("Chưa có kết quả luyện đề."));
+        return practiceReview(submission);
+    }
+
+    @Transactional(readOnly = true)
+    public PracticeHistoryResponse getPracticeHistory(
+            UUID examId, String username, int page, int size) {
+        requireStudentAndGet(username);
+        if (page < 0) {
+            throw new IllegalArgumentException("page phải >= 0.");
+        }
+        if (size < 1 || size > 100) {
+            throw new IllegalArgumentException("size phải nằm trong khoảng 1 đến 100.");
+        }
+
+        Exam exam = examRepository.findById(examId)
+                .filter(item -> item.getExamType() == ExamType.GENERAL_EXAM)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Không tìm thấy đề luyện tập."));
+        Page<Submission> submissions = submissionRepository
+                .findByUserUsernameAndExamIdAndModeAndSubmittedAtIsNotNull(
+                        username, examId, "GENERAL_EXAM",
+                        PageRequest.of(page, size, Sort.by(
+                                Sort.Order.desc("submittedAt"),
+                                Sort.Order.desc("id"))));
+
+        List<PracticeHistoryResponse.Item> items = submissions.getContent().stream()
+                .map(submission -> PracticeHistoryResponse.Item.builder()
+                        .submissionId(submission.getId())
+                        .submittedAt(toUtc(submission.getSubmittedAt()))
+                        .score(Optional.ofNullable(submission.getTotalCorrect()).orElse(0) * 0.25)
+                        .totalQuestions(submission.getTotalQuestions())
+                        .totalCorrect(Optional.ofNullable(submission.getTotalCorrect()).orElse(0))
+                        .build())
+                .toList();
+
+        return PracticeHistoryResponse.builder()
+                .examId(exam.getId())
+                .examTitle(exam.getTitle())
+                .items(items)
+                .page(submissions.getNumber())
+                .size(submissions.getSize())
+                .totalElements(submissions.getTotalElements())
+                .totalPages(submissions.getTotalPages())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public ExamResultResponse reviewPracticeSubmission(UUID submissionId, String username) {
+        requireStudent(username);
+        Submission submission = submissionRepository
+                .findByIdAndUserUsernameAndModeAndSubmittedAtIsNotNull(
+                        submissionId, username, "GENERAL_EXAM")
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Không tìm thấy bài luyện đề đã nộp."));
+        return practiceReview(submission);
+    }
+
+    @Transactional(readOnly = true)
+    public Set<UUID> getSubmittedPracticeExamIds(String username, Collection<UUID> examIds) {
+        if (examIds == null || examIds.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(submissionRepository.findSubmittedPracticeExamIds(
+                username, List.copyOf(examIds)));
+    }
+
+    private ExamResultResponse practiceReview(Submission submission) {
         List<SubmissionAnswer> answers = subDetailRepository.findAnswersBySubmissionId(submission.getId());
         ExamResultResponse result = toResultResponse(submission, answers, ResultContent.REVIEW);
         if (!submission.getExam().isAnswersRevealed()) {
@@ -155,6 +229,15 @@ public class SubmissionService {
             });
         }
         return result;
+    }
+
+    private OffsetDateTime toUtc(LocalDateTime timestamp) {
+        if (timestamp == null) {
+            return null;
+        }
+        return timestamp.atZone(ZoneId.systemDefault())
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .toOffsetDateTime();
     }
 
     @Transactional(readOnly = true)
@@ -447,13 +530,11 @@ public class SubmissionService {
             ResultContent content) {
         Map<UUID, SubmissionAnswer> answerByQuestion = new HashMap<>();
         answers.forEach(a -> answerByQuestion.put(a.questionId(), a));
-        Map<UUID, String> firstQuestionPartTypes = firstQuestionPartTypes(exam.questions().stream()
-                .filter(q -> answerByQuestion.containsKey(q.id()))
-                .toList());
+        Map<UUID, String> firstQuestionPartTypes = firstQuestionPartTypes(exam.questions());
         List<ExamResultResponse.QuestionResultDto> resultDetails = exam.questions().stream()
-                .filter(question -> answerByQuestion.containsKey(question.id()))
                 .map(question -> {
-                    SubmissionAnswer answer = answerByQuestion.get(question.id());
+                    SubmissionAnswer answer = answerByQuestion.getOrDefault(
+                            question.id(), new SubmissionAnswer(question.id(), null, false));
                     ExamSnapshot.VideoSnap video = question.video();
                     ExamResultResponse.RelatedVideoDto videoDto = content != ResultContent.HOMEWORK_REVIEW
                             && (content == ResultContent.REVIEW
@@ -494,7 +575,7 @@ public class SubmissionService {
                 .totalIncorrect(totalQuestions - totalCorrect)
                 .score(totalCorrect * 0.25)
                 .startedAt(submission.getStartedAt())
-                .submittedAt(submission.getSubmittedAt())
+                .submittedAt(toUtc(submission.getSubmittedAt()))
                 .partTimeLogs(partTimeLogs(submission))
                 .partTranslations(partTranslations(exam))
                 .parts(content != ResultContent.HOMEWORK_REVIEW ? exam.parts().stream()

@@ -12,6 +12,7 @@ import com.ice.iceenglish.modules.exams.repository.QuestionRepository;
 import com.ice.iceenglish.modules.exams.service.ExamSnapshotService;
 import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
 import com.ice.iceenglish.modules.submissions.dto.HomeworkReviewResponse;
+import com.ice.iceenglish.modules.submissions.dto.PracticeHistoryResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionAnswer;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
 import com.ice.iceenglish.modules.submissions.entity.Submission;
@@ -28,6 +29,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -35,6 +40,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.time.LocalDateTime;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -83,14 +89,14 @@ class SubmissionServiceTest {
                 question(unansweredId, 3, grammarPartId, PartType.GRAMMAR, video),
                 question(noVideoId, 4, grammarPartId, PartType.GRAMMAR, null)));
 
-        when(userRepository.findByUsername("student")).thenReturn(Optional.of(user));
+        lenient().when(userRepository.findByUsername("student")).thenReturn(Optional.of(user));
         lenient().when(subDetailRepository.findAnswersBySubmissionId(submissionId)).thenReturn(List.of(
                 new SubmissionAnswer(correctId, "A", true),
                 new SubmissionAnswer(incorrectId, "B", false),
                 new SubmissionAnswer(unansweredId, null, false),
                 new SubmissionAnswer(noVideoId, "A", true)));
-        when(examSnapshotService.find(examId)).thenReturn(Optional.of(snapshot));
-        when(partTimeLogRepository.findBySubmissionIdWithPart(submissionId)).thenReturn(List.of());
+        lenient().when(examSnapshotService.find(examId)).thenReturn(Optional.of(snapshot));
+        lenient().when(partTimeLogRepository.findBySubmissionIdWithPart(submissionId)).thenReturn(List.of());
     }
 
     @ParameterizedTest
@@ -120,6 +126,83 @@ class SubmissionServiceTest {
         assertNull(result.getDetails().get(2).getSelectedOpt());
 
         assertReviewContent(result);
+    }
+
+    @Test
+    void practiceHistoryReturnsOnlyPagedSubmissionSummariesWithUtcTimestamp() {
+        exam.setExamType(ExamType.GENERAL_EXAM);
+        submission.setSubmittedAt(LocalDateTime.of(2026, 11, 6, 14, 30));
+        PageImpl<Submission> page = new PageImpl<>(
+                List.of(submission), PageRequest.of(0, 20), 1);
+        when(examRepository.findById(examId)).thenReturn(Optional.of(exam));
+        when(submissionRepository.findByUserUsernameAndExamIdAndModeAndSubmittedAtIsNotNull(
+                eq("student"), eq(examId), eq("GENERAL_EXAM"), any(Pageable.class)))
+                .thenReturn(page);
+
+        PracticeHistoryResponse result = service.getPracticeHistory(examId, "student", 0, 20);
+
+        assertEquals(examId, result.getExamId());
+        assertEquals("Practice", result.getExamTitle());
+        assertEquals(1, result.getTotalElements());
+        assertEquals(1, result.getTotalPages());
+        assertEquals(1, result.getItems().size());
+        assertEquals(submissionId, result.getItems().get(0).getSubmissionId());
+        assertEquals(0, result.getItems().get(0).getSubmittedAt().getOffset().getTotalSeconds());
+        assertEquals(0.5, result.getItems().get(0).getScore());
+    }
+
+    @Test
+    void reviewPracticeSubmissionUsesRequestedOwnedSubmissionAndRevealPolicy() {
+        exam.setAnswersRevealed(false);
+        LocalDateTime submittedAt = LocalDateTime.of(2026, 11, 6, 14, 30);
+        submission.setSubmittedAt(submittedAt);
+        when(submissionRepository.findByIdAndUserUsernameAndModeAndSubmittedAtIsNotNull(
+                submissionId, "student", "GENERAL_EXAM")).thenReturn(Optional.of(submission));
+
+        ExamResultResponse result = service.reviewPracticeSubmission(submissionId, "student");
+
+        assertEquals(submissionId, result.getSubmissionId());
+        assertEquals(0, result.getSubmittedAt().getOffset().getTotalSeconds());
+        assertEquals(submittedAt.atZone(java.time.ZoneId.systemDefault()).toInstant(),
+                result.getSubmittedAt().toInstant());
+        assertEquals(4, result.getDetails().size());
+        assertNull(result.getDetails().get(0).getCorrectOpt());
+        assertNull(result.getDetails().get(0).getExplanation());
+        assertNull(result.getDetails().get(2).getSelectedOpt());
+    }
+
+    @Test
+    void practiceReviewIncludesQuestionsWithoutStoredAnswerRows() {
+        when(submissionRepository.findByIdAndUserUsernameAndModeAndSubmittedAtIsNotNull(
+                submissionId, "student", "GENERAL_EXAM")).thenReturn(Optional.of(submission));
+        when(subDetailRepository.findAnswersBySubmissionId(submissionId)).thenReturn(List.of());
+
+        ExamResultResponse result = service.reviewPracticeSubmission(submissionId, "student");
+
+        assertEquals(4, result.getDetails().size());
+        assertTrue(result.getDetails().stream().allMatch(detail ->
+                detail.getSelectedOpt() == null && Boolean.FALSE.equals(detail.getIsCorrect())));
+    }
+
+    @Test
+    void reviewPracticeSubmissionReturnsNotFoundForUnownedOrUnsubmittedSubmission() {
+        when(submissionRepository.findByIdAndUserUsernameAndModeAndSubmittedAtIsNotNull(
+                submissionId, "student", "GENERAL_EXAM")).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.reviewPracticeSubmission(submissionId, "student"));
+
+        assertEquals(404, exception.getStatusCode().value());
+    }
+
+    @Test
+    void submittedPracticeExamIdsReturnsDistinctMatchingIds() {
+        when(submissionRepository.findSubmittedPracticeExamIds("student", List.of(examId)))
+                .thenReturn(List.of(examId));
+
+        assertEquals(Set.of(examId),
+                service.getSubmittedPracticeExamIds("student", List.of(examId)));
     }
 
     @ParameterizedTest
