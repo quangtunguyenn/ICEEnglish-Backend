@@ -59,7 +59,8 @@ public class ExamSnapshotService {
     private static ExamSnapshot.QuestionSnap toSnap(Question q) {
         ExamPart part = q.getPart();
         Video video = q.getRelatedVideo();
-        return new ExamSnapshot.QuestionSnap(q.getId(), q.getOrderIndex(), q.getContent(), q.getCorrectOpt(),
+        return new ExamSnapshot.QuestionSnap(q.getId(), q.getOrderIndex(), q.getContent(),
+                q.getOptA(), q.getOptB(), q.getOptC(), q.getOptD(), q.getCorrectOpt(),
                 q.getExplanation(), part == null ? null : part.getId(), part == null ? null : part.getPartType(),
                 video == null ? null : new ExamSnapshot.VideoSnap(video.getId(), video.getTitle(), video.getVideoUrl()));
     }

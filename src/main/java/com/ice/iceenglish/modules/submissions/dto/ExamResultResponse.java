@@ -23,8 +23,21 @@ public class ExamResultResponse {
     private List<PartTimeLogDto> partTimeLogs;
     private List<QuestionResultDto> details;
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<ReviewPartDto> parts;
+
     // Bản dịch đoạn văn của các phần READING_8 / READING_10
     private List<PartTranslationDto> partTranslations;
+
+    @Data
+    @Builder
+    public static class ReviewPartDto {
+        private UUID partId;
+        private String partName;
+        private String partType;
+        private Integer orderIndex;
+        private String passageText;
+    }
 
     @Data
     @Builder
@@ -51,6 +64,16 @@ public class ExamResultResponse {
         private UUID questionId;
         private Integer orderIndex;
         private String content;
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private UUID partId;
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private String optA;
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private String optB;
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private String optC;
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private String optD;
         private String selectedOpt; // Đáp án học sinh chọn ('A', 'B', 'C', 'D' hoặc null)
         private String correctOpt; // Đáp án đúng
         private Boolean isCorrect; // true/false
@@ -61,7 +84,7 @@ public class ExamResultResponse {
         @JsonInclude(JsonInclude.Include.NON_NULL)
         private String partType;
 
-        // Video gợi ý ôn tập nếu học sinh làm SAI
+        // Review luyện đề và thi thử trả video cho mọi câu có liên kết.
         private RelatedVideoDto relatedVideo;
     }
 

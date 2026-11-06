@@ -22,7 +22,8 @@ public final class ExamSnapshot {
 
     public record VideoSnap(UUID id, String title, String url) {}
 
-    public record QuestionSnap(UUID id, Integer orderIndex, String content, String correctOpt,
+    public record QuestionSnap(UUID id, Integer orderIndex, String content,
+                               String optA, String optB, String optC, String optD, String correctOpt,
                                String explanation, UUID partId, PartType partType, VideoSnap video) {}
 
     private final UUID examId;

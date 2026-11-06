@@ -268,6 +268,28 @@ Response (rút gọn):
 
 Mẫu response đầy đủ: `samples/result-general-exam-sample.json`, `samples/result-mock-exam-sample.json`.
 
+Với `GET /submissions/practice/{examId}/latest-review`, `relatedVideo` được trả cho mọi câu có
+video liên kết, kể cả câu làm đúng và khi đề chưa công bố đáp án. Nếu chưa công bố đáp án,
+`correctOpt` và `explanation` vẫn là `null`; câu không có video liên kết có `relatedVideo: null`.
+
+Response của API luyện đề còn có `parts` gồm tất cả các phần theo thứ tự, với `partId`,
+`partName`, `partType`, `orderIndex` và `passageText` (có thể là `null`). Mỗi câu trong
+`details` có `partId` để liên kết với `parts`, cùng `optA`, `optB`, `optC`, `optD` để
+hiển thị bốn lựa chọn. Các trường này được trả cả khi chưa công bố đáp án.
+
+`GET /submissions/mock/{examId}/review` cũng trả `parts`, `details[].partId`, bốn lựa chọn
+và `relatedVideo` cho mọi câu có video liên kết, bất kể kết quả hay trạng thái công bố đáp án.
+API thi thử vẫn trả `correctOpt` và `explanation` như trước.
+
+`POST /submissions/submit` cũng trả `parts` và `details[].partId`, `optA`, `optB`, `optC`, `optD`
+như trên, cả khi nộp lần đầu hoặc gửi lại bài đã nộp. `POST /submissions/homework/submit`
+cũng trả bốn lựa chọn; homework không có part nên `parts` là `[]` và câu hỏi không có `partId`.
+Các API nộp bài vẫn chỉ trả `relatedVideo` cho câu sai như trước.
+
+`GET /submissions/homework/{examId}/latest-review` trả nội dung câu hỏi và bốn lựa chọn
+`optA`, `optB`, `optC`, `optD` trong `details`, nhưng không trả trường `relatedVideo`.
+Điểm số, lựa chọn của học sinh, đáp án đúng và lời giải vẫn được trả như trước.
+
 ### 3.3 Link đáp án sau khi nộp
 
 `GET /submissions/exams/{examId}/answer-url` → `{ "answer_url": "https://drive.google.com/..." }`

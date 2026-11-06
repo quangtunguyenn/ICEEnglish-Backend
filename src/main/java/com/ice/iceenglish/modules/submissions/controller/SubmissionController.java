@@ -1,6 +1,7 @@
 package com.ice.iceenglish.modules.submissions.controller;
 
 import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
+import com.ice.iceenglish.modules.submissions.dto.HomeworkReviewResponse;
 import com.ice.iceenglish.modules.submissions.dto.AnswerUrlResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.dto.TrackPartTimeRequest;
@@ -37,7 +38,7 @@ public class SubmissionController {
         }
 
         @GetMapping("/homework/{examId}/latest-review")
-        public ResponseEntity<ExamResultResponse> getLatestHomeworkReview(
+        public ResponseEntity<HomeworkReviewResponse> getLatestHomeworkReview(
                         @PathVariable UUID examId, Authentication authentication) {
                 return ResponseEntity.ok(
                                 submissionService.reviewLatestHomework(examId, authentication.getName()));

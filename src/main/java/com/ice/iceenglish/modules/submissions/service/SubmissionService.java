@@ -10,6 +10,7 @@ import com.ice.iceenglish.modules.exams.repository.ExamRepository;
 import com.ice.iceenglish.modules.exams.repository.QuestionRepository;
 import com.ice.iceenglish.modules.exams.service.ExamSnapshotService;
 import com.ice.iceenglish.modules.submissions.dto.ExamResultResponse;
+import com.ice.iceenglish.modules.submissions.dto.HomeworkReviewResponse;
 import com.ice.iceenglish.modules.submissions.dto.AnswerUrlResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionAnswer;
@@ -39,6 +40,10 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class SubmissionService {
+
+    private enum ResultContent {
+        SUBMISSION, REVIEW, HOMEWORK_REVIEW
+    }
 
     private final SubmissionRepository submissionRepository;
     private final SubDetailRepository subDetailRepository;
@@ -142,26 +147,25 @@ public class SubmissionService {
                         user.getId(), examId, "GENERAL_EXAM")
                 .orElseThrow(() -> new IllegalArgumentException("Chưa có kết quả luyện đề."));
         List<SubmissionAnswer> answers = subDetailRepository.findAnswersBySubmissionId(submission.getId());
-        ExamResultResponse result = toResultResponse(submission, answers);
+        ExamResultResponse result = toResultResponse(submission, answers, ResultContent.REVIEW);
         if (!submission.getExam().isAnswersRevealed()) {
             result.getDetails().forEach(d -> {
                 d.setCorrectOpt(null);
                 d.setExplanation(null);
-                d.setRelatedVideo(null);
             });
         }
         return result;
     }
 
     @Transactional(readOnly = true)
-    public ExamResultResponse reviewLatestHomework(UUID examId, String username) {
+    public HomeworkReviewResponse reviewLatestHomework(UUID examId, String username) {
         User user = requireStudentAndGet(username);
         Submission submission = submissionRepository
                 .findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
                         user.getId(), examId, "HOMEWORK")
                 .orElseThrow(() -> new IllegalArgumentException("Chưa có kết quả bài tập về nhà."));
         List<SubmissionAnswer> answers = subDetailRepository.findAnswersBySubmissionId(submission.getId());
-        return toResultResponse(submission, answers);
+        return HomeworkReviewResponse.from(toResultResponse(submission, answers, ResultContent.HOMEWORK_REVIEW));
     }
 
     @Transactional(readOnly = true)
@@ -183,7 +187,7 @@ public class SubmissionService {
                         user.getId(), examId, "MOCK")
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài thi thử đã nộp."));
         List<SubmissionAnswer> answers = subDetailRepository.findAnswersBySubmissionId(submission.getId());
-        return toResultResponse(submission, answers);
+        return toResultResponse(submission, answers, ResultContent.REVIEW);
     }
 
     @Transactional(readOnly = true)
@@ -294,7 +298,7 @@ public class SubmissionService {
         if (submission.getSubmittedAt() != null) {
             // Nộp lặp (timeout mạng, bấm lại): trả lại kết quả đã chấm thay vì báo lỗi, không chấm lại.
             return toResultResponse(submission,
-                    subDetailRepository.findAnswersBySubmissionId(submission.getId()));
+                    subDetailRepository.findAnswersBySubmissionId(submission.getId()), ResultContent.SUBMISSION);
         }
         if (submission.getTimeLimitMinutes() != null
                 && !LocalDateTime.now().isBefore(
@@ -343,7 +347,7 @@ public class SubmissionService {
 
         return toResultResponse(submission, exam, detailsToSave.stream()
                 .map(d -> new SubmissionAnswer(d.getQuestion().getId(), d.getSelectedOpt(), d.getIsCorrect()))
-                .toList());
+                .toList(), ResultContent.SUBMISSION);
     }
 
     /** Map questionId -> partType, chỉ cho câu đầu tiên của mỗi part READING_8 / READING_10. */
@@ -430,15 +434,17 @@ public class SubmissionService {
                 .build();
     }
 
-    private ExamResultResponse toResultResponse(Submission submission, List<SubmissionAnswer> answers) {
+    private ExamResultResponse toResultResponse(
+            Submission submission, List<SubmissionAnswer> answers, ResultContent content) {
         UUID examId = submission.getExam().getId();
         ExamSnapshot exam = examSnapshotService.find(examId)
                 .orElseThrow(() -> new IllegalStateException("Không tìm thấy đề thi: " + examId));
-        return toResultResponse(submission, exam, answers);
+        return toResultResponse(submission, exam, answers, content);
     }
 
     private ExamResultResponse toResultResponse(
-            Submission submission, ExamSnapshot exam, List<SubmissionAnswer> answers) {
+            Submission submission, ExamSnapshot exam, List<SubmissionAnswer> answers,
+            ResultContent content) {
         Map<UUID, SubmissionAnswer> answerByQuestion = new HashMap<>();
         answers.forEach(a -> answerByQuestion.put(a.questionId(), a));
         Map<UUID, String> firstQuestionPartTypes = firstQuestionPartTypes(exam.questions().stream()
@@ -449,7 +455,9 @@ public class SubmissionService {
                 .map(question -> {
                     SubmissionAnswer answer = answerByQuestion.get(question.id());
                     ExamSnapshot.VideoSnap video = question.video();
-                    ExamResultResponse.RelatedVideoDto videoDto = !Boolean.TRUE.equals(answer.isCorrect())
+                    ExamResultResponse.RelatedVideoDto videoDto = content != ResultContent.HOMEWORK_REVIEW
+                            && (content == ResultContent.REVIEW
+                            || !Boolean.TRUE.equals(answer.isCorrect()))
                             && video != null
                             ? ExamResultResponse.RelatedVideoDto.builder()
                                     .videoId(video.id())
@@ -461,12 +469,17 @@ public class SubmissionService {
                             .questionId(question.id())
                             .orderIndex(question.orderIndex())
                             .content(question.content())
+                            .partId(question.partId())
+                            .optA(question.optA())
+                            .optB(question.optB())
+                            .optC(question.optC())
+                            .optD(question.optD())
                             .selectedOpt(answer.selectedOpt())
                             .correctOpt(question.correctOpt())
                             .isCorrect(answer.isCorrect())
                             .explanation(question.explanation())
                             .partType(firstQuestionPartTypes.get(question.id()))
-                            .relatedVideo(videoDto) // Gửi kèm video bài giảng nếu câu này có liên kết
+                            .relatedVideo(videoDto)
                             .build();
                 })
                 .toList();
@@ -484,6 +497,15 @@ public class SubmissionService {
                 .submittedAt(submission.getSubmittedAt())
                 .partTimeLogs(partTimeLogs(submission))
                 .partTranslations(partTranslations(exam))
+                .parts(content != ResultContent.HOMEWORK_REVIEW ? exam.parts().stream()
+                        .map(part -> ExamResultResponse.ReviewPartDto.builder()
+                                .partId(part.id())
+                                .partName(part.name())
+                                .partType(part.partType().name())
+                                .orderIndex(part.orderIndex())
+                                .passageText(part.passageText())
+                                .build())
+                        .toList() : null)
                 .details(resultDetails)
                 .build();
     }
