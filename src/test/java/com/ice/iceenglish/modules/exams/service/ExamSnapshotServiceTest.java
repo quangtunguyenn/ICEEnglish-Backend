@@ -31,9 +31,9 @@ class ExamSnapshotServiceTest {
         UUID examId = UUID.randomUUID();
         UUID partId = UUID.randomUUID();
         ExamPart part = ExamPart.builder().id(partId).partName("Cloze").partType(PartType.CLOZE_TEST)
-                .passageText("Passage").orderIndex(1).build();
+                .passageText("Passage").orderIndex(1).fixedPosition(true).shuffleGroup("A").build();
         Exam exam = Exam.builder().id(examId).title("Exam").examType(ExamType.GENERAL_EXAM)
-                .status(ExamStatus.PUBLISHED).parts(List.of(part)).build();
+                .status(ExamStatus.PUBLISHED).shuffleParts(true).parts(List.of(part)).build();
         Question question = Question.builder().id(UUID.randomUUID()).part(part).orderIndex(1)
                 .content("Question").optA("A text").optB("B text").optC("C text").optD("D text")
                 .correctOpt("A").build();
@@ -43,6 +43,9 @@ class ExamSnapshotServiceTest {
         ExamSnapshot snapshot = service.find(examId).orElseThrow();
 
         assertEquals("Passage", snapshot.parts().get(0).passageText());
+        assertEquals(true, snapshot.shuffleParts());
+        assertEquals(true, snapshot.parts().get(0).fixedPosition());
+        assertEquals("A", snapshot.parts().get(0).shuffleGroup());
         ExamSnapshot.QuestionSnap result = snapshot.questions().get(0);
         assertEquals(partId, result.partId());
         assertEquals("A text", result.optA());

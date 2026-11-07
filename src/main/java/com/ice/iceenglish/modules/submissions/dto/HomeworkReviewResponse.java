@@ -33,6 +33,8 @@ public record HomeworkReviewResponse(
     public record QuestionResult(
             UUID questionId,
             Integer orderIndex,
+            Integer partDisplayIndex,
+            Integer displayNumber,
             String content,
             @JsonInclude(JsonInclude.Include.NON_NULL) UUID partId,
             String optA,
@@ -46,7 +48,8 @@ public record HomeworkReviewResponse(
             @JsonProperty("part_type") @JsonInclude(JsonInclude.Include.NON_NULL) String partType) {
 
         private static QuestionResult from(ExamResultResponse.QuestionResultDto question) {
-            return new QuestionResult(question.getQuestionId(), question.getOrderIndex(), question.getContent(),
+            return new QuestionResult(question.getQuestionId(), question.getOrderIndex(),
+                    question.getPartDisplayIndex(), question.getDisplayNumber(), question.getContent(),
                     question.getPartId(), question.getOptA(), question.getOptB(), question.getOptC(),
                     question.getOptD(), question.getSelectedOpt(), question.getCorrectOpt(),
                     question.getIsCorrect(), question.getExplanation(), question.getPartType());

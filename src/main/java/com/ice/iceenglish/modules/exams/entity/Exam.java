@@ -49,6 +49,10 @@ public class Exam {
     @Builder.Default
     private boolean answersRevealed = false;
 
+    @Column(name = "shuffle_parts", nullable = false)
+    @Builder.Default
+    private boolean shuffleParts = false;
+
     @Column(name = "answers_url", length = 1000)
     private String answersUrl;
 

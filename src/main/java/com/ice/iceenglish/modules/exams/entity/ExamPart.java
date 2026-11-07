@@ -46,6 +46,13 @@ public class ExamPart {
     @Column(name = "order_index", nullable = false)
     private Integer orderIndex;
 
+    @Column(name = "fixed_position", nullable = false)
+    @Builder.Default
+    private boolean fixedPosition = false;
+
+    @Column(name = "shuffle_group")
+    private String shuffleGroup;
+
     @OneToMany(mappedBy = "part", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("orderIndex ASC")
     @Builder.Default

@@ -135,6 +135,7 @@ public class ExamService {
                 .video(null)
                 .answersUrl(null)
                 .answersRevealed(false)
+                .shuffleParts(dto.getExam() != null && Boolean.TRUE.equals(dto.getExam().getShuffleParts()))
                 .createdBy(createdBy)
                 .build();
 
@@ -148,6 +149,8 @@ public class ExamService {
                     .recommendedTimeSeconds(
                             PartType.parse(p.getPartType()).getStandardTimeSeconds())
                     .orderIndex(p.getOrderIndex())
+                    .fixedPosition(Boolean.TRUE.equals(p.getFixedPosition()))
+                    .shuffleGroup(p.getShuffleGroup() == null ? null : p.getShuffleGroup().trim())
                     .build();
 
             for (ExamImportDto.QuestionImport q : p.getQuestions()) {
@@ -275,6 +278,7 @@ public class ExamService {
                         .videoId(exam.getVideo() != null ? exam.getVideo().getId() : null)
                         .durationMinutes(exam.getDurationMinutes())
                         .answersRevealed(exam.isAnswersRevealed())
+                        .shuffleParts(exam.isShuffleParts())
                         .parts(List.of())
                         .build())
                 .toList();
@@ -360,6 +364,7 @@ public class ExamService {
                 .videoId(exam.getVideo() != null ? exam.getVideo().getId() : null)
                 .durationMinutes(exam.getDurationMinutes())
                 .answersRevealed(exam.isAnswersRevealed())
+                .shuffleParts(exam.isShuffleParts())
                 .questions(exam.getQuestions().stream().map(q -> ExamResponseDto.QuestionDto.builder()
                         .id(q.getId())
                         .orderIndex(q.getOrderIndex())
@@ -376,6 +381,8 @@ public class ExamService {
                         .passageText(part.getPassageText())
                         .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
                         .orderIndex(part.getOrderIndex())
+                        .fixedPosition(part.isFixedPosition())
+                        .shuffleGroup(part.getShuffleGroup())
                         .questions(part.getQuestions().stream().map(q -> ExamResponseDto.QuestionDto.builder()
                                 .id(q.getId())
                                 .orderIndex(q.getOrderIndex())
@@ -397,6 +404,7 @@ public class ExamService {
                 .status(exam.getStatus())
                 .durationMinutes(exam.getDurationMinutes())
                 .answersRevealed(exam.isAnswersRevealed())
+                .shuffleParts(exam.isShuffleParts())
                 .answersUrl(exam.getAnswersUrl())
                 .createdBy(exam.getCreatedBy())
                 .parts(exam.getParts().stream().map(part -> ExamPreviewResponseDto.PartDto.builder()
@@ -404,8 +412,13 @@ public class ExamService {
                         .partName(part.getPartName())
                         .partType(part.getPartType())
                         .passageText(part.getPassageText())
+                        .translate(part.getPartType() == PartType.READING_8
+                                || part.getPartType() == PartType.READING_10
+                                ? part.getTranslate() : null)
                         .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
                         .orderIndex(part.getOrderIndex())
+                        .fixedPosition(part.isFixedPosition())
+                        .shuffleGroup(part.getShuffleGroup())
                         .questions(part.getQuestions().stream().map(q -> ExamPreviewResponseDto.QuestionDto.builder()
                                 .id(q.getId())
                                 .orderIndex(q.getOrderIndex())

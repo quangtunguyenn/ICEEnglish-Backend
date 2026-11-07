@@ -113,6 +113,8 @@ public class SubmissionService {
                 .totalQuestions(totalQuestions)
                 .totalCorrect(0)
                 .startedAt(startedAt)
+                .partOrder(exam.shuffleParts() && exam.examType() != ExamType.HOMEWORK
+                        ? PartOrder.shuffled(exam) : null)
                 .build();
         Submission saved = submissionRepository.save(submission);
         return toStartExamResponse(saved, exam);
@@ -298,6 +300,10 @@ public class SubmissionService {
     }
 
     private StartExamResponse toStartExamResponse(Submission submission, ExamSnapshot exam) {
+        List<UUID> order = resolvedPartOrder(submission, exam);
+        Map<UUID, ExamSnapshot.PartSnap> parts = exam.parts().stream()
+                .collect(Collectors.toMap(ExamSnapshot.PartSnap::id, Function.identity()));
+        Map<UUID, Integer> indexes = PartOrder.indexes(order);
         return StartExamResponse.builder()
                 .submissionId(submission.getId())
                 .examId(exam.examId())
@@ -307,15 +313,32 @@ public class SubmissionService {
                 .startedAt(submission.getStartedAt())
                 .expiresAt(submission.getTimeLimitMinutes() == null
                         ? null : submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes()))
-                .parts(exam.parts().stream()
+                .partOrder(order)
+                .parts(order.stream()
+                        .map(parts::get)
                         .map(part -> StartExamResponse.PartTimeDto.builder()
                                 .partId(part.id())
                                 .partName(part.name())
                                 .orderIndex(part.orderIndex())
+                                .displayIndex(indexes.get(part.id()))
                                 .recommendedTimeSeconds(part.partType().getStandardTimeSeconds())
                                 .build())
                         .toList())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<UUID> getOwnedPartOrder(UUID examId, UUID submissionId, String username) {
+        requireStudent(username);
+        Submission submission = submissionRepository.findByIdAndUserUsername(submissionId, username)
+                .filter(s -> s.getExam().getId().equals(examId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy lượt thi."));
+        return resolvedPartOrder(submission, ensureSnapshot(submission));
+    }
+
+    private List<UUID> resolvedPartOrder(Submission submission, ExamSnapshot exam) {
+        return PartOrder.resolve(submission.getPartOrder(),
+                exam.parts().stream().map(ExamSnapshot.PartSnap::id).toList());
     }
 
     private String defaultMode(ExamType examType) {
@@ -449,11 +472,13 @@ public class SubmissionService {
         return result;
     }
 
-    private List<ExamResultResponse.PartTranslationDto> partTranslations(ExamSnapshot exam) {
+    private List<ExamResultResponse.PartTranslationDto> partTranslations(
+            ExamSnapshot exam, Map<UUID, Integer> indexes) {
         return exam.parts().stream()
                 .filter(part -> (part.partType() == PartType.READING_8
                         || part.partType() == PartType.READING_10)
                         && (part.passageText() != null || part.translate() != null))
+                .sorted(Comparator.comparing(part -> indexes.get(part.id())))
                 .map(part -> ExamResultResponse.PartTranslationDto.builder()
                         .partId(part.id())
                         .partName(part.name())
@@ -528,10 +553,24 @@ public class SubmissionService {
     private ExamResultResponse toResultResponse(
             Submission submission, ExamSnapshot exam, List<SubmissionAnswer> answers,
             ResultContent content) {
+        List<UUID> order = resolvedPartOrder(submission, exam);
+        Map<UUID, Integer> indexes = PartOrder.indexes(order);
+        List<ExamSnapshot.QuestionSnap> displayQuestions = new ArrayList<>(exam.questions());
+        displayQuestions.sort(Comparator
+                .comparing((ExamSnapshot.QuestionSnap q) -> indexes.getOrDefault(q.partId(), Integer.MAX_VALUE))
+                .thenComparing(ExamSnapshot.QuestionSnap::orderIndex));
+        List<ExamSnapshot.QuestionSnap> orderedQuestions =
+                submission.getPartOrder() == null ? exam.questions() : displayQuestions;
+        Map<UUID, Integer> questionNumbers = new HashMap<>();
+        for (int i = 0; i < displayQuestions.size(); i++) {
+            questionNumbers.put(displayQuestions.get(i).id(), i + 1);
+        }
+        Map<UUID, ExamSnapshot.PartSnap> partsById = exam.parts().stream()
+                .collect(Collectors.toMap(ExamSnapshot.PartSnap::id, Function.identity()));
         Map<UUID, SubmissionAnswer> answerByQuestion = new HashMap<>();
         answers.forEach(a -> answerByQuestion.put(a.questionId(), a));
         Map<UUID, String> firstQuestionPartTypes = firstQuestionPartTypes(exam.questions());
-        List<ExamResultResponse.QuestionResultDto> resultDetails = exam.questions().stream()
+        List<ExamResultResponse.QuestionResultDto> resultDetails = orderedQuestions.stream()
                 .map(question -> {
                     SubmissionAnswer answer = answerByQuestion.getOrDefault(
                             question.id(), new SubmissionAnswer(question.id(), null, false));
@@ -549,6 +588,8 @@ public class SubmissionService {
                     return ExamResultResponse.QuestionResultDto.builder()
                             .questionId(question.id())
                             .orderIndex(question.orderIndex())
+                            .partDisplayIndex(indexes.get(question.partId()))
+                            .displayNumber(questionNumbers.get(question.id()))
                             .content(question.content())
                             .partId(question.partId())
                             .optA(question.optA())
@@ -576,14 +617,16 @@ public class SubmissionService {
                 .score(totalCorrect * 0.25)
                 .startedAt(submission.getStartedAt())
                 .submittedAt(toUtc(submission.getSubmittedAt()))
-                .partTimeLogs(partTimeLogs(submission))
-                .partTranslations(partTranslations(exam))
-                .parts(content != ResultContent.HOMEWORK_REVIEW ? exam.parts().stream()
+                .partTimeLogs(partTimeLogs(submission, order))
+                .partTranslations(partTranslations(exam, indexes))
+                .parts(content != ResultContent.HOMEWORK_REVIEW ? order.stream()
+                        .map(partsById::get)
                         .map(part -> ExamResultResponse.ReviewPartDto.builder()
                                 .partId(part.id())
                                 .partName(part.name())
                                 .partType(part.partType().name())
                                 .orderIndex(part.orderIndex())
+                                .displayIndex(indexes.get(part.id()))
                                 .passageText(part.passageText())
                                 .build())
                         .toList() : null)
@@ -662,12 +705,21 @@ public class SubmissionService {
     }
 
     private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(Submission submission) {
-        return partTimeLogRepository.findBySubmissionIdWithPart(submission.getId())
-                .stream()
+        return partTimeLogs(submission, resolvedPartOrder(submission, ensureSnapshot(submission)));
+    }
+
+    private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(Submission submission, List<UUID> order) {
+        Map<UUID, Integer> indexes = PartOrder.indexes(order);
+        List<PartTimeLog> logs = new ArrayList<>(partTimeLogRepository.findBySubmissionIdWithPart(submission.getId()));
+        if (submission.getPartOrder() != null) {
+            logs.sort(Comparator.comparing(log -> indexes.getOrDefault(log.getPart().getId(), Integer.MAX_VALUE)));
+        }
+        return logs.stream()
                 .map(log -> ExamResultResponse.PartTimeLogDto.builder()
                         .partId(log.getPart().getId())
                         .partName(log.getPart().getPartName())
                         .timeSpentSeconds(log.getTimeSpentSeconds())
+                        .displayIndex(indexes.get(log.getPart().getId()))
                         .build())
                 .toList();
     }

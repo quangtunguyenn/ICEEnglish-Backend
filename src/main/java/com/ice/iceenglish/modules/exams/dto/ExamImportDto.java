@@ -2,6 +2,7 @@ package com.ice.iceenglish.modules.exams.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import lombok.Data;
 
 import java.util.List;
@@ -50,6 +51,10 @@ public class ExamImportDto {
 
         @JsonProperty("answers_url")
         private String answersUrl;
+
+        @JsonProperty("shuffle_parts")
+        @JsonDeserialize(using = StrictImportBooleanDeserializer.class)
+        private Boolean shuffleParts;
     }
 
     @Data
@@ -68,6 +73,14 @@ public class ExamImportDto {
 
         @JsonProperty("order_index")
         private Integer orderIndex;
+
+        @JsonProperty("fixed_position")
+        @JsonDeserialize(using = StrictImportBooleanDeserializer.class)
+        private Boolean fixedPosition;
+
+        @JsonProperty("shuffle_group")
+        @JsonDeserialize(using = StrictImportStringDeserializer.class)
+        private String shuffleGroup;
 
         private String translate;
 

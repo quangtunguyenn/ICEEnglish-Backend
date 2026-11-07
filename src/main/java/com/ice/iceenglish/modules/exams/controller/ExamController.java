@@ -7,6 +7,7 @@ import com.ice.iceenglish.modules.exams.dto.ExamResponseDto;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
 import com.ice.iceenglish.modules.exams.service.ExamService;
 import com.ice.iceenglish.modules.submissions.service.SubmissionService;
+import com.ice.iceenglish.modules.submissions.service.PartOrder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +20,10 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
 import java.util.Set;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 @RestController
@@ -87,8 +92,31 @@ public class ExamController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ExamResponseDto> getExamDetail(@PathVariable UUID id, Authentication authentication) {
-        return ResponseEntity.ok(examService.getExamDetail(id, isStaff(authentication)));
+    public ResponseEntity<ExamResponseDto> getExamDetail(
+            @PathVariable UUID id, @RequestParam(required = false) UUID submissionId,
+            Authentication authentication) {
+        List<UUID> order = submissionId == null ? null
+                : submissionService.getOwnedPartOrder(id, submissionId, authentication.getName());
+        ExamResponseDto exam = examService.getExamDetail(id, isStaff(authentication));
+        if (order == null) {
+            return ResponseEntity.ok(exam);
+        }
+        Map<UUID, ExamResponseDto.ExamPartDto> parts = exam.getParts().stream()
+                .collect(Collectors.toMap(ExamResponseDto.ExamPartDto::getId, Function.identity()));
+        PartOrder.resolve(order, exam.getParts().stream().map(ExamResponseDto.ExamPartDto::getId).toList());
+        Map<UUID, Integer> indexes = PartOrder.indexes(order);
+        int[] number = {0};
+        List<ExamResponseDto.ExamPartDto> orderedParts = order.stream().map(parts::get)
+                .map(part -> part.toBuilder()
+                        .displayIndex(indexes.get(part.getId()))
+                        .questions(part.getQuestions().stream()
+                                .map(question -> question.toBuilder().displayNumber(++number[0]).build())
+                                .toList())
+                        .build())
+                .toList();
+        List<ExamResponseDto.QuestionDto> questions = exam.getQuestions().stream()
+                .map(question -> question.toBuilder().displayNumber(++number[0]).build()).toList();
+        return ResponseEntity.ok(exam.toBuilder().parts(orderedParts).questions(questions).build());
     }
 
     /** Đề kèm đáp án và lời giải, để giáo viên duyệt trước khi publish. */

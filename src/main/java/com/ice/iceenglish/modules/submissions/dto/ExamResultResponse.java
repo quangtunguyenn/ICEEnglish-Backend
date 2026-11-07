@@ -37,6 +37,7 @@ public class ExamResultResponse {
         private String partName;
         private String partType;
         private Integer orderIndex;
+        private Integer displayIndex;
         private String passageText;
     }
 
@@ -57,6 +58,7 @@ public class ExamResultResponse {
         private UUID partId;
         private String partName;
         private Integer timeSpentSeconds;
+        private Integer displayIndex;
     }
 
     @Data
@@ -64,6 +66,8 @@ public class ExamResultResponse {
     public static class QuestionResultDto {
         private UUID questionId;
         private Integer orderIndex;
+        private Integer partDisplayIndex;
+        private Integer displayNumber;
         private String content;
         @JsonInclude(JsonInclude.Include.NON_NULL)
         private UUID partId;

@@ -18,7 +18,12 @@ import java.util.stream.Collectors;
 public final class ExamSnapshot {
 
     public record PartSnap(UUID id, String name, PartType partType, String passageText,
-                           String translate, Integer orderIndex) {}
+                           String translate, Integer orderIndex, boolean fixedPosition, String shuffleGroup) {
+        public PartSnap(UUID id, String name, PartType partType, String passageText,
+                        String translate, Integer orderIndex) {
+            this(id, name, partType, passageText, translate, orderIndex, false, null);
+        }
+    }
 
     public record VideoSnap(UUID id, String title, String url) {}
 
@@ -31,6 +36,7 @@ public final class ExamSnapshot {
     private final ExamType examType;
     private final ExamStatus status;
     private final Integer durationMinutes;
+    private final boolean shuffleParts;
     private final List<PartSnap> parts;
     private final List<QuestionSnap> questions;
     private final Set<UUID> partIds;
@@ -38,11 +44,18 @@ public final class ExamSnapshot {
 
     public ExamSnapshot(UUID examId, String title, ExamType examType, ExamStatus status,
                         Integer durationMinutes, List<PartSnap> parts, List<QuestionSnap> questions) {
+        this(examId, title, examType, status, durationMinutes, false, parts, questions);
+    }
+
+    public ExamSnapshot(UUID examId, String title, ExamType examType, ExamStatus status,
+                        Integer durationMinutes, boolean shuffleParts,
+                        List<PartSnap> parts, List<QuestionSnap> questions) {
         this.examId = examId;
         this.title = title;
         this.examType = examType;
         this.status = status;
         this.durationMinutes = durationMinutes;
+        this.shuffleParts = shuffleParts;
         this.parts = List.copyOf(parts);
         this.questions = List.copyOf(questions);
         this.partIds = this.parts.stream().map(PartSnap::id).collect(Collectors.toUnmodifiableSet());
@@ -56,6 +69,7 @@ public final class ExamSnapshot {
     public ExamType examType() { return examType; }
     public ExamStatus status() { return status; }
     public Integer durationMinutes() { return durationMinutes; }
+    public boolean shuffleParts() { return shuffleParts; }
     /** Các part theo thứ tự order_index. */
     public List<PartSnap> parts() { return parts; }
     /** Mọi câu hỏi của đề theo thứ tự order_index. */

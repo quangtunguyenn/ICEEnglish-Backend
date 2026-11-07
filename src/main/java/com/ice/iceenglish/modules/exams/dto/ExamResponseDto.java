@@ -23,6 +23,7 @@ public class ExamResponseDto {
     private UUID videoId;
     private Integer durationMinutes;
     private boolean answersRevealed;
+    private boolean shuffleParts;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Boolean hasSubmitted;
     @JsonProperty("answers_url")
@@ -33,7 +34,7 @@ public class ExamResponseDto {
     private List<QuestionDto> questions;
 
     @Data
-    @Builder
+    @Builder(toBuilder = true)
     public static class ExamPartDto {
         private UUID id;
         private String partName;
@@ -41,14 +42,18 @@ public class ExamResponseDto {
         private String passageText; // Frontend hiển thị bên TRÁI màn hình
         private Integer recommendedTimeSeconds;
         private Integer orderIndex;
+        private Integer displayIndex;
+        private boolean fixedPosition;
+        private String shuffleGroup;
         private List<QuestionDto> questions; // Frontend hiển thị bên PHẢI
     }
 
     @Data
-    @Builder
+    @Builder(toBuilder = true)
     public static class QuestionDto {
         private UUID id;
         private Integer orderIndex;
+        private Integer displayNumber;
         private String content;
         private String optA;
         private String optB;

@@ -1,0 +1,37 @@
+{
+  "exam": {
+    "title": "Practice exam with shuffled parts",
+    "shuffle_parts": true
+  },
+  "parts": [
+    {
+      "part_type": "GRAMMAR",
+      "part_name": "Grammar A",
+      "order_index": 1,
+      "shuffle_group": "grammar",
+      "fixed_position": false,
+      "questions": [
+        {
+          "order_index": 1,
+          "content": "Choose the correct word.",
+          "options": {"A": "is", "B": "are", "C": "am", "D": "be"},
+          "correct_option": "A"
+        }
+      ]
+    },
+    {
+      "part_type": "GRAMMAR",
+      "part_name": "Grammar B",
+      "order_index": 2,
+      "shuffle_group": "grammar",
+      "questions": [
+        {
+          "order_index": 2,
+          "content": "Choose the correct form.",
+          "options": {"A": "go", "B": "goes", "C": "going", "D": "gone"},
+          "correct_option": "B"
+        }
+      ]
+    }
+  ]
+}

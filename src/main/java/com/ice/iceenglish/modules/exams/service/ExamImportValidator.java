@@ -116,6 +116,11 @@ public class ExamImportValidator {
             errors.add(path + ".order_index: trùng giá trị " + order + " với một phần thi khác.");
         }
 
+        if (part.getShuffleGroup() != null
+                && (part.getShuffleGroup().isBlank() || part.getShuffleGroup().length() > MAX_NAME_LENGTH)) {
+            errors.add(path + ".shuffle_group: không được rỗng và tối đa " + MAX_NAME_LENGTH + " ký tự.");
+        }
+
         if (part.getRecommendedTimeSeconds() != null && part.getRecommendedTimeSeconds() < 1) {
             errors.add(path + ".recommended_time_seconds: phải >= 1 (hoặc bỏ trống).");
         } else if (type != null && part.getRecommendedTimeSeconds() != null

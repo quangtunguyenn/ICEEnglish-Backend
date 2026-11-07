@@ -2,6 +2,7 @@ package com.ice.iceenglish.modules.submissions.service;
 
 import com.ice.iceenglish.modules.exams.dto.ExamSnapshot;
 import com.ice.iceenglish.modules.exams.entity.Exam;
+import com.ice.iceenglish.modules.exams.entity.ExamPart;
 import com.ice.iceenglish.modules.exams.entity.Question;
 import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
@@ -15,7 +16,9 @@ import com.ice.iceenglish.modules.submissions.dto.HomeworkReviewResponse;
 import com.ice.iceenglish.modules.submissions.dto.PracticeHistoryResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionAnswer;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
+import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.entity.Submission;
+import com.ice.iceenglish.modules.submissions.entity.PartTimeLog;
 import com.ice.iceenglish.modules.submissions.repository.PartTimeLogRepository;
 import com.ice.iceenglish.modules.submissions.repository.SubDetailRepository;
 import com.ice.iceenglish.modules.submissions.repository.SubmissionRepository;
@@ -379,6 +382,127 @@ class SubmissionServiceTest {
         assertTrue(json.get("details").get(2).get("selectedOpt").isNull());
     }
 
+        @Test
+        void reviewUsesSavedOrderAndNumbersWithoutChangingGrading() {
+            submission.setPartOrder(List.of(grammarPartId, clozePartId));
+            when(submissionRepository.findByIdAndUserUsernameAndModeAndSubmittedAtIsNotNull(
+                    submissionId, "student", "GENERAL_EXAM")).thenReturn(Optional.of(submission));
+
+            ExamResultResponse result = service.reviewPracticeSubmission(submissionId, "student");
+
+            assertEquals(List.of(grammarPartId, clozePartId),
+                    result.getParts().stream().map(ExamResultResponse.ReviewPartDto::getPartId).toList());
+            assertEquals(List.of(unansweredId, noVideoId, correctId, incorrectId),
+                    result.getDetails().stream().map(ExamResultResponse.QuestionResultDto::getQuestionId).toList());
+            assertEquals(List.of(1, 2, 3, 4),
+                    result.getDetails().stream().map(ExamResultResponse.QuestionResultDto::getDisplayNumber).toList());
+            assertEquals(List.of(1, 1, 2, 2),
+                    result.getDetails().stream().map(ExamResultResponse.QuestionResultDto::getPartDisplayIndex).toList());
+            assertEquals(2, result.getTotalCorrect());
+        }
+
+        @Test
+        void accessToAttemptOrderRequiresOwnerAndMatchingExam() {
+            when(submissionRepository.findByIdAndUserUsername(submissionId, "student"))
+                    .thenReturn(Optional.of(submission));
+            submission.setPartOrder(List.of(grammarPartId, clozePartId));
+            assertEquals(List.of(grammarPartId, clozePartId), service.getOwnedPartOrder(examId, submissionId, "student"));
+            assertThrows(ResponseStatusException.class,
+                    () -> service.getOwnedPartOrder(UUID.randomUUID(), submissionId, "student"));
+            when(submissionRepository.findByIdAndUserUsername(submissionId, "student")).thenReturn(Optional.empty());
+            assertThrows(ResponseStatusException.class,
+                    () -> service.getOwnedPartOrder(examId, submissionId, "student"));
+        }
+
+        @Test
+        void startPersistsOrderOnceAndResumeReturnsSameOrder() {
+            User user = submission.getUser();
+            submission.setStartedAt(LocalDateTime.now());
+            submission.setMode("GENERAL_EXAM");
+            ExamSnapshot shuffled = new ExamSnapshot(examId, "Exam", ExamType.GENERAL_EXAM,
+                    ExamStatus.PUBLISHED, null, true, snapshot.parts(), snapshot.questions());
+            when(userRepository.findByUsernameForUpdate("student")).thenReturn(Optional.of(user));
+            when(examSnapshotService.find(examId)).thenReturn(Optional.of(shuffled));
+            when(submissionRepository.findFirstByUserUsernameAndExamIdAndSubmittedAtIsNullOrderByStartedAtDesc(
+                    "student", examId)).thenReturn(Optional.empty(), Optional.of(submission));
+            when(examRepository.getReferenceById(examId)).thenReturn(exam);
+            when(submissionRepository.save(any(Submission.class))).thenAnswer(invocation -> {
+                Submission created = invocation.getArgument(0);
+                submission.setPartOrder(created.getPartOrder());
+                return submission;
+            });
+
+            StartExamResponse first = service.startExam(examId, "student");
+            StartExamResponse resumed = service.startExam(examId, "student");
+
+            assertEquals(first.getPartOrder(), resumed.getPartOrder());
+            assertEquals(first.getPartOrder(), submission.getPartOrder());
+            assertEquals(2, first.getPartOrder().size());
+            verify(submissionRepository, times(1)).save(any(Submission.class));
+        }
+
+        @Test
+        void shuffledSubmissionGradesByQuestionIdAndReturnsLogsInDisplayOrder() {
+            submission.setMode("MOCK");
+            submission.setStartedAt(LocalDateTime.now());
+            submission.setPartOrder(List.of(grammarPartId, clozePartId));
+            when(submissionRepository.findByIdAndUserUsernameForUpdate(submissionId, "student"))
+                    .thenReturn(Optional.of(submission));
+            when(partTimeLogRepository.findBySubmissionIdWithPart(submissionId)).thenReturn(List.of(
+                    PartTimeLog.builder().part(ExamPart.builder().id(clozePartId).partName("Cloze").build())
+                            .timeSpentSeconds(10).build(),
+                    PartTimeLog.builder().part(ExamPart.builder().id(grammarPartId).partName("Grammar").build())
+                            .timeSpentSeconds(20).build()));
+            for (ExamSnapshot.QuestionSnap question : snapshot.questions()) {
+                when(questionRepository.getReferenceById(question.id()))
+                        .thenReturn(Question.builder().id(question.id()).build());
+            }
+            SubmitExamRequest request = request();
+            request.setAnswers(List.of(answer(correctId, "A"), answer(incorrectId, "B"), answer(noVideoId, "A")));
+
+            ExamResultResponse result = service.submitExam(request, "student");
+            assertEquals(2, result.getTotalCorrect());
+            assertEquals(noVideoId, result.getDetails().get(1).getQuestionId());
+            assertTrue(result.getDetails().get(1).getIsCorrect());
+            assertEquals(List.of(grammarPartId, clozePartId),
+                    result.getPartTimeLogs().stream().map(ExamResultResponse.PartTimeLogDto::getPartId).toList());
+            assertEquals(List.of(1, 2),
+                    result.getPartTimeLogs().stream().map(ExamResultResponse.PartTimeLogDto::getDisplayIndex).toList());
+        }
+
+        @Test
+        void oldMockAttemptDoesNotAcquireNewOrderWhenResumed() {
+            User user = submission.getUser();
+            submission.setMode("MOCK");
+            submission.setStartedAt(LocalDateTime.now());
+            submission.setTimeLimitMinutes(60);
+            when(userRepository.findByUsernameForUpdate("student")).thenReturn(Optional.of(user));
+            when(examSnapshotService.find(examId)).thenReturn(Optional.of(new ExamSnapshot(
+                    examId, "Mock", ExamType.MOCK, ExamStatus.PUBLISHED, 60, true,
+                    snapshot.parts(), snapshot.questions())));
+            when(submissionRepository.findFirstByUserUsernameAndExamIdAndModeOrderByStartedAtDesc(
+                    "student", examId, "MOCK")).thenReturn(Optional.of(submission));
+
+            StartExamResponse result = service.startExam(examId, "student");
+            assertEquals(List.of(clozePartId, grammarPartId), result.getPartOrder());
+            assertNull(submission.getPartOrder());
+            verify(submissionRepository, never()).save(any());
+        }
+
+        @Test
+        void startWithoutShuffleKeepsOriginalOrderAndDoesNotPersistOverride() {
+            User user = submission.getUser();
+            when(userRepository.findByUsernameForUpdate("student")).thenReturn(Optional.of(user));
+            when(submissionRepository.findFirstByUserUsernameAndExamIdAndSubmittedAtIsNullOrderByStartedAtDesc(
+                    "student", examId)).thenReturn(Optional.empty());
+            when(examRepository.getReferenceById(examId)).thenReturn(exam);
+            when(submissionRepository.save(any(Submission.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            StartExamResponse result = service.startExam(examId, "student");
+            assertEquals(List.of(clozePartId, grammarPartId), result.getPartOrder());
+            var saved = org.mockito.ArgumentCaptor.forClass(Submission.class);
+            verify(submissionRepository).save(saved.capture());
+            assertNull(saved.getValue().getPartOrder());
+        }
     private ExamSnapshot.QuestionSnap question(UUID id, int order, UUID partId,
                                                PartType partType, ExamSnapshot.VideoSnap video) {
         return new ExamSnapshot.QuestionSnap(id, order, "Question", "Option A", "Option B", "Option C",

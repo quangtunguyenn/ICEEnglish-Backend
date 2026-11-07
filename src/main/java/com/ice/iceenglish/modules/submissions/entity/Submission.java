@@ -6,7 +6,10 @@ import com.ice.iceenglish.modules.exams.entity.Exam;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -51,6 +54,10 @@ public class Submission {
 
     @Column(name = "submitted_at")
     private LocalDateTime submittedAt;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "part_order", columnDefinition = "jsonb")
+    private List<UUID> partOrder;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

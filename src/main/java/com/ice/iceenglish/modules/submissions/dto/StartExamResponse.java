@@ -18,6 +18,7 @@ public class StartExamResponse {
     private LocalDateTime startedAt;
     private LocalDateTime expiresAt;
     private List<PartTimeDto> parts;
+    private List<UUID> partOrder;
 
     @Data
     @Builder
@@ -25,6 +26,7 @@ public class StartExamResponse {
         private UUID partId;
         private String partName;
         private Integer orderIndex;
+        private Integer displayIndex;
         private Integer recommendedTimeSeconds;
     }
 }
