@@ -20,4 +20,15 @@ public interface SubDetailRepository extends JpaRepository<SubDetail, UUID> {
     @Query("SELECT new com.ice.iceenglish.modules.submissions.dto.SubmissionAnswer("
             + "d.question.id, d.selectedOpt, d.isCorrect) FROM SubDetail d WHERE d.submission.id = :submissionId")
     List<SubmissionAnswer> findAnswersBySubmissionId(@Param("submissionId") UUID submissionId);
+
+    @Query("select d.question.id as questionId, d.selectedOpt as selectedOpt, "
+            + "d.isCorrect as correct from SubDetail d where d.submission.id in :submissionIds")
+    List<MockQuestionAnswerData> findMockQuestionAnswerDataBySubmissionIds(
+            @Param("submissionIds") List<UUID> submissionIds);
+
+    interface MockQuestionAnswerData {
+        UUID getQuestionId();
+        String getSelectedOpt();
+        Boolean getCorrect();
+    }
 }

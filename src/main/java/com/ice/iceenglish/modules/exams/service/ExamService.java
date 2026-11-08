@@ -8,6 +8,7 @@ import com.ice.iceenglish.core.cache.CacheRegistry;
 import com.ice.iceenglish.modules.exams.dto.AnswersRevealedResponse;
 import com.ice.iceenglish.modules.exams.dto.ExamImportDto;
 import com.ice.iceenglish.modules.exams.dto.ExamImportResponseDto;
+import com.ice.iceenglish.modules.exams.dto.ExamListPageResponse;
 import com.ice.iceenglish.modules.exams.dto.ExamPreviewResponseDto;
 import com.ice.iceenglish.modules.exams.dto.ExamResponseDto;
 import com.ice.iceenglish.modules.exams.entity.Exam;
@@ -21,10 +22,15 @@ import com.ice.iceenglish.modules.exams.exception.ExamImportException;
 import com.ice.iceenglish.modules.exams.exception.NotFoundException;
 import com.ice.iceenglish.modules.exams.repository.ExamPartRepository;
 import com.ice.iceenglish.modules.exams.repository.ExamRepository;
+import com.ice.iceenglish.core.time.ServerTime;
 import com.ice.iceenglish.modules.videos.entity.Video;
 import com.ice.iceenglish.modules.videos.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -32,10 +38,14 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ExamService {
@@ -135,7 +145,8 @@ public class ExamService {
                 .video(null)
                 .answersUrl(null)
                 .answersRevealed(false)
-                .shuffleParts(dto.getExam() != null && Boolean.TRUE.equals(dto.getExam().getShuffleParts()))
+                .shuffleParts(dto.getExam() != null
+                        && Boolean.TRUE.equals(dto.getExam().getShuffleParts()))
                 .createdBy(createdBy)
                 .build();
 
@@ -174,6 +185,7 @@ public class ExamService {
         }
 
         Exam saved = examRepository.save(exam);
+        cacheRegistry.evictAllAfterCommit();
 
         return ExamImportResponseDto.builder()
                 .id(saved.getId())
@@ -275,6 +287,7 @@ public class ExamService {
                         .id(exam.getId())
                         .title(exam.getTitle())
                         .examType(exam.getExamType())
+                        .status(exam.getStatus())
                         .videoId(exam.getVideo() != null ? exam.getVideo().getId() : null)
                         .durationMinutes(exam.getDurationMinutes())
                         .answersRevealed(exam.isAnswersRevealed())
@@ -282,6 +295,103 @@ public class ExamService {
                         .parts(List.of())
                         .build())
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ExamResponseDto> listExamsLegacy(
+            ExamType examType, ExamStatus status, String keyword, Sort sort) {
+        return filterExams(examType, status, keyword, sort)
+                .stream()
+                .map(exam -> ExamResponseDto.builder()
+                        .id(exam.getId())
+                        .title(exam.getTitle())
+                        .examType(exam.getExamType())
+                        .status(exam.getStatus())
+                        .videoId(exam.getVideo() != null ? exam.getVideo().getId() : null)
+                        .durationMinutes(exam.getDurationMinutes())
+                        .answersRevealed(exam.isAnswersRevealed())
+                        .shuffleParts(exam.isShuffleParts())
+                        .parts(List.of())
+                        .build())
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Exam> searchExams(
+            ExamType examType, ExamStatus status, String keyword, Pageable pageable) {
+        List<Exam> matches = filterExams(examType, status, keyword, pageable.getSort());
+        int fromIndex = (int) Math.min(pageable.getOffset(), matches.size());
+        int toIndex = (int) Math.min((long) fromIndex + pageable.getPageSize(), matches.size());
+        return new PageImpl<>(matches.subList(fromIndex, toIndex), pageable, matches.size());
+    }
+
+    private List<Exam> filterExams(
+            ExamType examType, ExamStatus status, String keyword, Sort sort) {
+        List<Exam> candidates;
+        if (examType != null && status != null) {
+            candidates = examRepository.findByExamTypeAndStatus(examType, status, sort);
+        } else if (examType != null) {
+            candidates = examRepository.findByExamType(examType, sort);
+        } else if (status != null) {
+            candidates = examRepository.findByStatus(status, sort);
+        } else {
+            candidates = examRepository.findAll(sort);
+        }
+
+        String normalizedKeyword = normalizeSearchText(keyword);
+        if (normalizedKeyword.isEmpty()) {
+            return candidates;
+        }
+        return candidates.stream()
+                .filter(exam -> normalizeSearchText(exam.getTitle()).contains(normalizedKeyword))
+                .toList();
+    }
+
+    private String normalizeSearchText(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .replace('đ', 'd')
+                .replace('Đ', 'D')
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    @Transactional(readOnly = true)
+    public ExamListPageResponse toExamListPage(
+            Page<Exam> exams, Map<UUID, Double> latestScores, Set<UUID> attemptedExamIds) {
+        List<UUID> examIds = exams.getContent().stream().map(Exam::getId).toList();
+        Map<UUID, Long> questionCounts = examIds.isEmpty()
+                ? Map.of()
+                : examRepository.findQuestionCountsByExamIds(examIds).stream()
+                        .collect(Collectors.toMap(
+                                ExamRepository.ExamQuestionCount::getExamId,
+                                count -> count.getTotalQuestions() == null ? 0L : count.getTotalQuestions()));
+
+        return ExamListPageResponse.builder()
+                .items(exams.getContent().stream()
+                        .map(exam -> ExamListPageResponse.Item.builder()
+                                .id(exam.getId())
+                                .title(exam.getTitle())
+                                .mode(exam.getExamType())
+                                .status(exam.getStatus())
+                                .durationMinutes(exam.getDurationMinutes())
+                                .totalQuestions(questionCounts.getOrDefault(exam.getId(), 0L))
+                                .createdAt(exam.getCreatedAt() == null ? null
+                                        : exam.getCreatedAt().atZone(ServerTime.ZONE_ID).toOffsetDateTime())
+                                .attempted(attemptedExamIds == null
+                                        ? null : attemptedExamIds.contains(exam.getId()))
+                                .latestScore(latestScores == null ? null : latestScores.get(exam.getId()))
+                                .build())
+                        .toList())
+                .page(exams.getNumber())
+                .size(exams.getSize())
+                .totalElements(exams.getTotalElements())
+                .totalPages(exams.getTotalPages())
+                .build();
     }
 
     /** Đề đầy đủ đáp án + lời giải cho giáo viên/admin duyệt, ở mọi trạng thái. */

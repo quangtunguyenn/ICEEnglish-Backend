@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.security.Key;
+import java.time.Clock;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,6 +18,12 @@ import java.util.function.Function;
 
 @Service
 public class JwtService {
+
+    private final Clock serverClock;
+
+    public JwtService(Clock serverClock) {
+        this.serverClock = serverClock;
+    }
 
     // Chuỗi secret key mã hóa BASE64 (>= 256-bit).
     // Nên đặt trong application.yml/properties để key không đổi giữa các lần chạy/môi trường.
@@ -33,7 +40,7 @@ public class JwtService {
     }
 
     private String buildToken(Map<String, Object> extraClaims, String username, long expiration) {
-        long now = System.currentTimeMillis();
+        long now = serverClock.millis();
         return Jwts.builder()
                 .setClaims(extraClaims)
                 .setSubject(username)
@@ -70,7 +77,7 @@ public class JwtService {
     }
 
     private boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
+        return extractExpiration(token).before(Date.from(serverClock.instant()));
     }
 
     private Date extractExpiration(String token) {
@@ -85,6 +92,7 @@ public class JwtService {
     private Claims extractAllClaims(String token) {
         return Jwts.parserBuilder()
                 .setSigningKey(getSignInKey())
+                .setClock(() -> Date.from(serverClock.instant()))
                 .build()
                 .parseClaimsJws(token)
                 .getBody();

@@ -3,7 +3,6 @@ package com.ice.iceenglish.modules.submissions.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -16,7 +15,7 @@ public record HomeworkReviewResponse(
         Integer totalCorrect,
         Integer totalIncorrect,
         Double score,
-        LocalDateTime startedAt,
+        OffsetDateTime startedAt,
         OffsetDateTime submittedAt,
         List<ExamResultResponse.PartTimeLogDto> partTimeLogs,
         List<QuestionResult> details,
@@ -33,8 +32,6 @@ public record HomeworkReviewResponse(
     public record QuestionResult(
             UUID questionId,
             Integer orderIndex,
-            Integer partDisplayIndex,
-            Integer displayNumber,
             String content,
             @JsonInclude(JsonInclude.Include.NON_NULL) UUID partId,
             String optA,
@@ -48,8 +45,7 @@ public record HomeworkReviewResponse(
             @JsonProperty("part_type") @JsonInclude(JsonInclude.Include.NON_NULL) String partType) {
 
         private static QuestionResult from(ExamResultResponse.QuestionResultDto question) {
-            return new QuestionResult(question.getQuestionId(), question.getOrderIndex(),
-                    question.getPartDisplayIndex(), question.getDisplayNumber(), question.getContent(),
+            return new QuestionResult(question.getQuestionId(), question.getOrderIndex(), question.getContent(),
                     question.getPartId(), question.getOptA(), question.getOptB(), question.getOptC(),
                     question.getOptD(), question.getSelectedOpt(), question.getCorrectOpt(),
                     question.getIsCorrect(), question.getExplanation(), question.getPartType());

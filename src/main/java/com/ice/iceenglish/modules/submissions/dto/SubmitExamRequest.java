@@ -11,6 +11,7 @@ public class SubmitExamRequest {
     @JsonProperty("exam_id")
     private UUID examId;
     private List<UserAnswerDto> answers;
+    /** Accepted for compatibility with older clients; server ignores client-reported part durations. */
     private List<PartTimeLogDto> partLogs;
 
     @Data

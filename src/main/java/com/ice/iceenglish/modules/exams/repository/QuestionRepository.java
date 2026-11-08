@@ -30,11 +30,23 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
     @Query("SELECT q FROM Question q LEFT JOIN FETCH q.relatedVideo WHERE q.exam.id = :examId")
     List<Question> findByExamIdWithDetails(@Param("examId") UUID examId);
 
+    @Query("select p.exam.id as examId, count(q.id) as totalQuestions "
+            + "from Question q join q.part p where p.exam.id in :examIds group by p.exam.id")
+    List<ExamQuestionCount> countQuestionsByExamIds(@Param("examIds") List<UUID> examIds);
+
+    @Query("select count(q.id) from Question q join q.part p where p.exam.id = :examId")
+    long countByExamId(@Param("examId") UUID examId);
+
     /** Như findAllByExamId nhưng tách thành 2 truy vấn đơn giản (dùng được index) và nạp sẵn quan hệ. */
     default List<Question> findAllWithDetailsByExamId(UUID examId) {
         List<Question> result = new ArrayList<>(findByPartExamIdWithDetails(examId));
         result.addAll(findByExamIdWithDetails(examId));
         result.sort(Comparator.comparing(Question::getOrderIndex));
         return result;
+    }
+
+    interface ExamQuestionCount {
+        UUID getExamId();
+        Long getTotalQuestions();
     }
 }

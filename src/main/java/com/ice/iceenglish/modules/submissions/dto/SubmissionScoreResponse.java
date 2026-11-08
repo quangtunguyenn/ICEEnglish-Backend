@@ -3,7 +3,7 @@ package com.ice.iceenglish.modules.submissions.dto;
 import lombok.Builder;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Data
@@ -14,8 +14,9 @@ public class SubmissionScoreResponse {
     private String examTitle;
     private Integer totalQuestions;
     private Integer totalCorrect;
+    private Integer correctCount;
     private Integer totalIncorrect;
     private Double score;
-    private LocalDateTime startedAt;
-    private LocalDateTime submittedAt;
+    private OffsetDateTime startedAt;
+    private OffsetDateTime submittedAt;
 }

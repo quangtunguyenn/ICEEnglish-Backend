@@ -32,7 +32,8 @@ public final class PartOrder {
             }
         }
         for (List<Integer> positions : slots.values()) {
-            List<UUID> ids = positions.stream().map(result::get).collect(Collectors.toCollection(ArrayList::new));
+            List<UUID> ids = positions.stream().map(result::get)
+                    .collect(Collectors.toCollection(ArrayList::new));
             Collections.shuffle(ids, random);
             for (int i = 0; i < positions.size(); i++) {
                 result.set(positions.get(i), ids.get(i));

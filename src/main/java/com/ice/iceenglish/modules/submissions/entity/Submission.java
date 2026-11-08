@@ -3,6 +3,7 @@ package com.ice.iceenglish.modules.submissions.entity;
 
 import com.ice.iceenglish.modules.users.entity.User;
 import com.ice.iceenglish.modules.exams.entity.Exam;
+import com.ice.iceenglish.modules.exams.entity.ExamPart;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -58,6 +59,13 @@ public class Submission {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "part_order", columnDefinition = "jsonb")
     private List<UUID> partOrder;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "active_part_id")
+    private ExamPart activePart;
+
+    @Column(name = "active_part_started_at")
+    private LocalDateTime activePartStartedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

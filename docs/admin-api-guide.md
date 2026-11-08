@@ -172,15 +172,15 @@ Cấu trúc JSON rút gọn:
 {
   "exam": {
     "title": "Practice Exam 1",
-    "shuffle_parts": true
+    "duration_minutes": 60,
+    "shuffle_parts": true,
+    "video_id": "uuid"
   },
   "parts": [
     {
       "part_type": "GRAMMAR",
       "part_name": "Grammar",
       "order_index": 1,
-      "fixed_position": false,
-      "shuffle_group": "A",
       "questions": [
         {
           "order_index": 1,
@@ -200,19 +200,16 @@ Cấu trúc JSON rút gọn:
 }
 ```
 
+`exam.shuffle_parts` là boolean tùy chọn, mặc định `false`. Khi là `true`, backend
+sinh và lưu thứ tự part riêng cho từng lượt làm (không trộn câu hỏi bên trong
+part). Có thể đặt `fixed_position: true` trên part để giữ nguyên vị trí, hoặc
+dùng `shuffle_group` để chỉ trộn các part cùng nhóm với nhau.
+
 Các loại `part_type` hợp lệ: `GRAMMAR`, `CLOZE_TEST`, `ARRANGEMENT`, `READING_8`, `READING_10`, `FILLIN_CLOZE`. Đề phải có cấu trúc và thứ tự câu/part hợp lệ; API trả lỗi kèm đường dẫn trường JSON không hợp lệ.
 
-`exam.shuffle_parts` và `parts[].fixed_position` là boolean tùy chọn, mặc định `false`.
-`parts[].shuffle_group` là chuỗi không rỗng (tối đa 255 ký tự) hoặc `null`, mặc định `null`;
-khoảng trắng đầu/cuối được bỏ. Các part không cố định chỉ đổi chỗ trong các vị trí của cùng
-nhóm; `null` là một nhóm riêng. Part cố định giữ vị trí trong danh sách sắp theo `order_index`.
-Trong một nhóm chỉ có một part không cố định thì không có gì để trộn. Cùng nhóm không đảm bảo
-các part liền nhau hay giữ thứ tự tương đối. Đề mẫu đầy đủ: [exam-import-sample.json](exam-import-sample.json).
-
-Chỉ bật trộn sau khi kiểm tra nội dung: số câu viết cứng trong `content`, `passage_text` (kể cả
-ô trống cloze) và lời giải không được tự đổi theo thứ tự mới. Backend không thay placeholder
-`{{n}}`. Không dùng cùng nhóm để biểu diễn các part phụ thuộc phải luôn đi liền hoặc đúng thứ tự.
-Hiện cấu hình được đặt khi import; chưa có API chỉnh cấu hình sau import.
+Database cần có migration `V3__Add_submission_part_shuffle.sql` để lưu cấu hình
+trộn và thứ tự part của lượt làm. Không chạy migration trên môi trường đang dùng
+trong quá trình sửa mã; xác nhận migration đã áp dụng trước khi deploy.
 
 Response `201 Created`:
 
@@ -240,7 +237,7 @@ GET /exams/{examId}/preview
 Authorization: Bearer <staff-token>
 ```
 
-Response gồm thông tin đề và `parts[].questions[]`, trong đó mỗi câu có `correctOpt`, `explanation`, và `relatedVideoId`. API này trả cả đáp án; không dùng ở màn hình học sinh. Preview luôn theo thứ tự gốc, kèm `shuffleParts`, `fixedPosition`, `shuffleGroup`. Part `READING_8` và `READING_10` có thêm `translate` (bản dịch, có thể `null`); part loại khác luôn `translate: null`.
+Response gồm thông tin đề và `parts[].questions[]`, trong đó mỗi câu có `correctOpt`, `explanation`, và `relatedVideoId`. API này trả cả đáp án; không dùng ở màn hình học sinh.
 
 ### Đọc đề không có đáp án
 
@@ -252,31 +249,8 @@ Authorization: Bearer <token>
 - Học sinh chỉ lấy được đề `PUBLISHED`; đề khác trạng thái trả `404`.
 - Staff có thể lấy đề ở mọi trạng thái, nhưng response này không chứa đáp án.
 - Muốn xem đáp án/lời giải, staff dùng endpoint preview.
-- Học sinh có thể thêm `?submissionId={submissionId}` để lấy đúng thứ tự của lượt làm thuộc
-  tài khoản mình và đề đó. Mỗi part có `displayIndex` (từ 1), mỗi câu có `displayNumber`.
-  Không truyền tham số thì trả thứ tự gốc như trước. `orderIndex` luôn là giá trị gốc.
 
-### Thứ tự theo lượt làm
-
-- `POST /submissions/start/{examId}` trả thêm `partOrder` và `parts[].displayIndex`. Thứ tự
-  được lưu một lần khi tạo submission của đề bật shuffle; resume trả lại thứ tự cũ. Thi thử
-  đã nộp hoặc hết hạn vẫn tuân theo giới hạn một lượt như trước.
-- Kết quả submit/review trả `parts[].displayIndex`, `details[].partDisplayIndex` và
-  `details[].displayNumber`; `partTimeLogs` và API `GET /submissions/{submissionId}/part-logs`
-  có `displayIndex`. Đáp án và chấm điểm vẫn theo ID câu hỏi.
-- Đề không bật shuffle hoặc submission cũ không có thứ tự đã lưu dùng thứ tự gốc. Shuffle
-  áp dụng cho `MOCK` và `GENERAL_EXAM`, không trộn câu trong part; homework hiện không có part.
-  Hai lượt có thể ngẫu nhiên trùng thứ tự.
-
-### Triển khai database
-
-Áp dụng [V3__Add_submission_part_shuffle.sql](../src/main/resources/db/migration/V3__Add_submission_part_shuffle.sql)
-trước khi chạy phiên bản mới trên database hiện hữu. Script thêm hai cột boolean mặc định false,
-nhóm nullable và `submissions.part_order` kiểu JSONB. Dự án hiện chưa cấu hình Flyway tự chạy
-migration; `ddl-auto=update` không thay thế quy trình migration có kiểm soát. Sao lưu và kiểm tra
-script theo quy trình triển khai trước khi áp dụng. Không cần backfill submission cũ.
-
-### Danh sách đề đã publish
+### Danh sách đề
 
 ```http
 GET /exams
@@ -286,7 +260,16 @@ GET /exams?mode=HOMEWORK
 Authorization: Bearer <token>
 ```
 
-Mọi người dùng đã đăng nhập đều có thể gọi. Response chỉ gồm đề `PUBLISHED`. Hiện tại endpoint không phân trang.
+Học sinh chỉ nhận đề `PUBLISHED`; backend áp dụng lọc trước khi phân trang và
+bỏ qua `status` do client gửi. ADMIN/TEACHER có thể truyền
+`status=PUBLISHED|DRAFT|ARCHIVED`; bỏ trống `status` để lấy mọi trạng thái.
+`page` mặc định 0, `size` mặc định 12 (tối đa 100), `keyword` tìm theo tiêu đề
+không phân biệt hoa thường, `sort` mặc định `createdAt,desc`.
+
+Request có `page` hoặc `size` trả object phân trang (`items`, `page`, `size`,
+`totalElements`, `totalPages`). Với học sinh, mỗi item có thêm `attempted` và
+`latestScore` theo lượt nộp gần nhất; với staff hai field này là `null`. Khi
+không truyền cả `page` và `size`, endpoint giữ response mảng cũ để tương thích.
 
 ### Publish đề
 

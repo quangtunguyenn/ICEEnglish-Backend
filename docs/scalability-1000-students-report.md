@@ -86,7 +86,7 @@ Mã: `SubmissionService.submitExam`.
 
 ### 3.5. Ghi thời gian theo part (MOCK)
 
-`PUT /submissions/{id}/parts/{partId}/time` ≈ 7 câu SQL/lần. Nếu frontend gọi mỗi 1 giây cho mỗi HS → **1000 req/s ≈ 7000 SQL/s** → vượt pool 10. Nếu chỉ gọi khi chuyển part hoặc mỗi ≥ 30 s thì không sao. Khuyến nghị: chỉ gửi `partLogs` kèm lúc nộp bài (API nộp đã hỗ trợ).
+`PUT /submissions/{id}/parts/{partId}/time` ghi nhận một lần khi học sinh vào/chuyển part; backend dùng timestamp server để tính thời gian, không nhận số giây client. Không gọi endpoint theo chu kỳ hoặc mỗi giây. `partLogs` trong request submit cũ không còn là nguồn thời gian đáng tin cậy và bị bỏ qua.
 
 ### 3.6. Tăng trưởng dữ liệu (tác động sau vài tháng)
 

@@ -5,12 +5,15 @@ import com.ice.iceenglish.modules.submissions.dto.HomeworkReviewResponse;
 import com.ice.iceenglish.modules.submissions.dto.AnswerUrlResponse;
 import com.ice.iceenglish.modules.submissions.dto.PracticeHistoryResponse;
 import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
-import com.ice.iceenglish.modules.submissions.dto.TrackPartTimeRequest;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionScoreResponse;
+import com.ice.iceenglish.modules.submissions.dto.SubmissionScorePageResponse;
 import com.ice.iceenglish.modules.submissions.service.SubmissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -66,10 +69,45 @@ public class SubmissionController {
         }
 
         @GetMapping("/mock/scores")
-        public ResponseEntity<List<SubmissionScoreResponse>> getMockScores(
+        public ResponseEntity<?> getMockScores(
+                        @RequestParam(value = "page", required = false) Integer page,
+                        @RequestParam(value = "size", required = false) Integer size,
+                        @RequestParam(value = "sort", defaultValue = "submittedAt,desc") String sort,
                         Authentication authentication) {
-                return ResponseEntity.ok(
-                                submissionService.getMockScores(authentication.getName()));
+                if (page == null && size == null) {
+                        return ResponseEntity.ok(
+                                        submissionService.getMockScores(authentication.getName()));
+                }
+                int pageNumber = page == null ? 0 : page;
+                int pageSize = size == null ? 20 : size;
+                if (pageNumber < 0) {
+                        throw new IllegalArgumentException("page phải >= 0.");
+                }
+                if (pageSize < 1 || pageSize > 100) {
+                        throw new IllegalArgumentException("size phải nằm trong khoảng 1 đến 100.");
+                }
+                String[] sortParts = sort.split(",", -1);
+                if (sortParts.length != 2 || !"submittedAt".equals(sortParts[0])) {
+                        throw new IllegalArgumentException("sort chỉ hỗ trợ submittedAt.");
+                }
+                Sort.Direction direction;
+                try {
+                        direction = Sort.Direction.fromString(sortParts[1]);
+                } catch (IllegalArgumentException exception) {
+                        throw new IllegalArgumentException("sort direction phải là asc hoặc desc.");
+                }
+                Sort pageableSort = Sort.by(new Sort.Order(direction, "submittedAt"))
+                                .and(Sort.by(Sort.Order.desc("id")));
+                Page<SubmissionScoreResponse> scores = submissionService.getMockScoresPage(
+                                authentication.getName(),
+                                PageRequest.of(pageNumber, pageSize, pageableSort));
+                return ResponseEntity.ok(SubmissionScorePageResponse.builder()
+                                .items(scores.getContent())
+                                .page(scores.getNumber())
+                                .size(scores.getSize())
+                                .totalElements(scores.getTotalElements())
+                                .totalPages(scores.getTotalPages())
+                                .build());
         }
 
         @GetMapping("/exams/{examId}/answer-url")
@@ -110,7 +148,7 @@ public class SubmissionController {
 
         /**
          * Dùng chung cho luyện đề và thi thử. Body có submissionId, exam_id,
-         * answers và có thể có partLogs; partLogs chỉ được lưu cho MOCK.
+         * answers. Thời gian từng part được đo phía server qua endpoint chuyển part.
          * Điểm trả về bằng totalCorrect * 0.25.
          */
         @PostMapping("/submit")
@@ -133,10 +171,9 @@ public class SubmissionController {
         public ResponseEntity<Void> trackPartTime(
                         @PathVariable UUID submissionId,
                         @PathVariable UUID partId,
-                        @RequestBody TrackPartTimeRequest request,
                         Authentication authentication) {
                 submissionService.trackPartTime(
-                                submissionId, partId, request, authentication.getName());
+                                submissionId, partId, authentication.getName());
                 return ResponseEntity.noContent().build();
         }
 

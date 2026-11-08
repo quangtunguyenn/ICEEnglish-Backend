@@ -17,7 +17,6 @@ import com.ice.iceenglish.modules.submissions.dto.StartExamResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionAnswer;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionScoreResponse;
 import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
-import com.ice.iceenglish.modules.submissions.dto.TrackPartTimeRequest;
 import com.ice.iceenglish.modules.submissions.entity.SubDetail;
 import com.ice.iceenglish.modules.submissions.entity.Submission;
 import com.ice.iceenglish.modules.submissions.entity.PartTimeLog;
@@ -26,10 +25,12 @@ import com.ice.iceenglish.modules.submissions.repository.PartTimeLogRepository;
 import com.ice.iceenglish.modules.submissions.repository.SubmissionRepository;
 import com.ice.iceenglish.modules.users.entity.User;
 import com.ice.iceenglish.modules.users.repository.UserRepository;
+import com.ice.iceenglish.core.time.ServerTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -37,9 +38,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.time.Clock;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
+import java.time.Duration;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -60,6 +61,7 @@ public class SubmissionService {
     private final ExamRepository examRepository;
     private final ExamSnapshotService examSnapshotService;
     private final UserRepository userRepository;
+    private final Clock serverClock;
 
     /** Thời gian ân hạn cho phép nộp muộn, bù cho độ trễ khi nhiều học sinh nộp đúng lúc hết giờ. */
     @Value("${app.exam.submit-grace-seconds:30}")
@@ -104,7 +106,7 @@ public class SubmissionService {
             }
         }
 
-        LocalDateTime startedAt = LocalDateTime.now();
+        LocalDateTime startedAt = LocalDateTime.now(serverClock);
         Submission submission = Submission.builder()
                 .user(user)
                 .exam(examRepository.getReferenceById(examId))
@@ -183,7 +185,7 @@ public class SubmissionService {
         List<PracticeHistoryResponse.Item> items = submissions.getContent().stream()
                 .map(submission -> PracticeHistoryResponse.Item.builder()
                         .submissionId(submission.getId())
-                        .submittedAt(toUtc(submission.getSubmittedAt()))
+                        .submittedAt(toVietnamTime(submission.getSubmittedAt()))
                         .score(Optional.ofNullable(submission.getTotalCorrect()).orElse(0) * 0.25)
                         .totalQuestions(submission.getTotalQuestions())
                         .totalCorrect(Optional.ofNullable(submission.getTotalCorrect()).orElse(0))
@@ -233,13 +235,11 @@ public class SubmissionService {
         return result;
     }
 
-    private OffsetDateTime toUtc(LocalDateTime timestamp) {
+    private OffsetDateTime toVietnamTime(LocalDateTime timestamp) {
         if (timestamp == null) {
             return null;
         }
-        return timestamp.atZone(ZoneId.systemDefault())
-                .withZoneSameInstant(ZoneOffset.UTC)
-                .toOffsetDateTime();
+        return timestamp.atZone(ServerTime.ZONE_ID).toOffsetDateTime();
     }
 
     @Transactional(readOnly = true)
@@ -262,6 +262,41 @@ public class SubmissionService {
                 .stream()
                 .map(this::toScoreResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<SubmissionScoreResponse> getMockScoresPage(String username, Pageable pageable) {
+        User user = requireStudentAndGet(username);
+        return submissionRepository
+                .findByUserIdAndModeAndSubmittedAtIsNotNull(user.getId(), "MOCK", pageable)
+                .map(this::toScoreResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, Double> getLatestScoresByExamIds(
+            String username, String mode, Collection<UUID> examIds) {
+        requireStudentAndGet(username);
+        if (examIds == null || examIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Double> scores = new HashMap<>();
+        for (SubmissionRepository.LatestExamScore latest
+                : submissionRepository.findLatestScoresByExamIds(username, mode, List.copyOf(examIds))) {
+            int totalCorrect = Optional.ofNullable(latest.getTotalCorrect()).orElse(0);
+            scores.putIfAbsent(latest.getExamId(), totalCorrect * 0.25);
+        }
+        return scores;
+    }
+
+    @Transactional(readOnly = true)
+    public Set<UUID> getAttemptedExamIds(
+            String username, String mode, Collection<UUID> examIds) {
+        requireStudentAndGet(username);
+        if (examIds == null || examIds.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(submissionRepository.findAttemptedExamIds(
+                username, mode, List.copyOf(examIds)));
     }
 
     @Transactional(readOnly = true)
@@ -295,7 +330,7 @@ public class SubmissionService {
 
     private boolean isExpired(Submission submission) {
         return submission.getTimeLimitMinutes() != null
-                && !LocalDateTime.now().isBefore(
+                && !LocalDateTime.now(serverClock).isBefore(
                 submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes()));
     }
 
@@ -310,9 +345,11 @@ public class SubmissionService {
                 .mode(submission.getMode())
                 .totalQuestions(exam.totalQuestions())
                 .timeLimitMinutes(submission.getTimeLimitMinutes())
-                .startedAt(submission.getStartedAt())
+                .serverNow(OffsetDateTime.now(serverClock))
+                .startedAt(toVietnamTime(submission.getStartedAt()))
                 .expiresAt(submission.getTimeLimitMinutes() == null
-                        ? null : submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes()))
+                        ? null : toVietnamTime(
+                                submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes())))
                 .partOrder(order)
                 .parts(order.stream()
                         .map(parts::get)
@@ -331,8 +368,9 @@ public class SubmissionService {
     public List<UUID> getOwnedPartOrder(UUID examId, UUID submissionId, String username) {
         requireStudent(username);
         Submission submission = submissionRepository.findByIdAndUserUsername(submissionId, username)
-                .filter(s -> s.getExam().getId().equals(examId))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy lượt thi."));
+                .filter(item -> item.getExam().getId().equals(examId))
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Không tìm thấy lượt thi."));
         return resolvedPartOrder(submission, ensureSnapshot(submission));
     }
 
@@ -350,35 +388,35 @@ public class SubmissionService {
     }
 
     @Transactional
-    public void trackPartTime(UUID submissionId, UUID partId,
-                              TrackPartTimeRequest request, String username) {
+    public void trackPartTime(UUID submissionId, UUID partId, String username) {
         requireStudent(username);
-        if (request == null || request.getTimeSpentSeconds() == null
-                || request.getTimeSpentSeconds() < 0) {
-            throw new IllegalArgumentException("timeSpentSeconds phải >= 0.");
-        }
-        Submission submission = submissionRepository.findByIdAndUserUsername(submissionId, username)
+        Submission submission = submissionRepository.findByIdAndUserUsernameForUpdate(submissionId, username)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lượt thi."));
-        if (!"MOCK".equals(submission.getMode())) {
-            throw new IllegalStateException("Chỉ thi thử (MOCK) mới tracking thời gian theo part.");
+        if (!"MOCK".equals(submission.getMode())
+                && !"GENERAL_EXAM".equals(submission.getMode())) {
+            throw new IllegalStateException("Chỉ bài thi thử và luyện đề mới tracking thời gian theo part.");
         }
         if (submission.getSubmittedAt() != null) {
             throw new IllegalStateException("Lượt thi này đã được nộp.");
         }
-        if (!LocalDateTime.now().isBefore(
-                submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes()))) {
+        LocalDateTime now = LocalDateTime.now(serverClock);
+        if (submission.getTimeLimitMinutes() != null
+                && !now.isBefore(submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes()))) {
             throw new IllegalStateException("Lượt thi đã hết thời gian.");
         }
         if (!ensureSnapshot(submission).partIds().contains(partId)) {
             throw new IllegalArgumentException("Part không thuộc đề thi.");
         }
-        PartTimeLog log = partTimeLogRepository.findBySubmissionIdAndPartId(submissionId, partId)
-                .orElseGet(() -> PartTimeLog.builder()
-                        .submission(submission)
-                        .part(examPartRepository.getReferenceById(partId))
-                        .build());
-        log.setTimeSpentSeconds(request.getTimeSpentSeconds());
-        partTimeLogRepository.save(log);
+
+        if (submission.getActivePart() != null
+                && partId.equals(submission.getActivePart().getId())) {
+            return;
+        }
+
+        accumulateActivePartTime(submission, now);
+        submission.setActivePart(examPartRepository.getReferenceById(partId));
+        submission.setActivePartStartedAt(now);
+        submissionRepository.save(submission);
     }
 
     @Transactional(readOnly = true)
@@ -387,7 +425,8 @@ public class SubmissionService {
         requireStudent(username);
         Submission submission = submissionRepository.findByIdAndUserUsername(submissionId, username)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lượt thi."));
-        return partTimeLogs(submission);
+        return partTimeLogs(submission,
+                resolvedPartOrder(submission, ensureSnapshot(submission)));
     }
 
     @Transactional
@@ -406,8 +445,9 @@ public class SubmissionService {
             return toResultResponse(submission,
                     subDetailRepository.findAnswersBySubmissionId(submission.getId()), ResultContent.SUBMISSION);
         }
+        LocalDateTime submittedAt = LocalDateTime.now(serverClock);
         if (submission.getTimeLimitMinutes() != null
-                && !LocalDateTime.now().isBefore(
+                && !submittedAt.isBefore(
                 submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes())
                         .plusSeconds(submitGraceSeconds))) {
             throw new IllegalStateException("Lượt thi đã hết thời gian.");
@@ -445,11 +485,11 @@ public class SubmissionService {
 
         submission.setTotalQuestions(totalQuestions);
         submission.setTotalCorrect(totalCorrect);
-        submission.setSubmittedAt(LocalDateTime.now());
+        submission.setSubmittedAt(submittedAt);
 
+        accumulateActivePartTime(submission, submittedAt);
         submissionRepository.save(submission);
         subDetailRepository.saveAll(detailsToSave);
-        savePartTimeLogs(request, submission, exam);
 
         return toResultResponse(submission, exam, detailsToSave.stream()
                 .map(d -> new SubmissionAnswer(d.getQuestion().getId(), d.getSelectedOpt(), d.getIsCorrect()))
@@ -478,7 +518,8 @@ public class SubmissionService {
                 .filter(part -> (part.partType() == PartType.READING_8
                         || part.partType() == PartType.READING_10)
                         && (part.passageText() != null || part.translate() != null))
-                .sorted(Comparator.comparing(part -> indexes.get(part.id())))
+                .sorted(Comparator.comparing(part ->
+                        indexes.getOrDefault(part.id(), Integer.MAX_VALUE)))
                 .map(part -> ExamResultResponse.PartTranslationDto.builder()
                         .partId(part.id())
                         .partName(part.name())
@@ -535,10 +576,11 @@ public class SubmissionService {
                 .examTitle(submission.getExam().getTitle())
                 .totalQuestions(totalQuestions)
                 .totalCorrect(totalCorrect)
+                .correctCount(totalCorrect)
                 .totalIncorrect(totalQuestions - totalCorrect)
                 .score(totalCorrect * 0.25)
-                .startedAt(submission.getStartedAt())
-                .submittedAt(submission.getSubmittedAt())
+                .startedAt(toVietnamTime(submission.getStartedAt()))
+                .submittedAt(toVietnamTime(submission.getSubmittedAt()))
                 .build();
     }
 
@@ -555,18 +597,15 @@ public class SubmissionService {
             ResultContent content) {
         List<UUID> order = resolvedPartOrder(submission, exam);
         Map<UUID, Integer> indexes = PartOrder.indexes(order);
-        List<ExamSnapshot.QuestionSnap> displayQuestions = new ArrayList<>(exam.questions());
-        displayQuestions.sort(Comparator
-                .comparing((ExamSnapshot.QuestionSnap q) -> indexes.getOrDefault(q.partId(), Integer.MAX_VALUE))
+        List<ExamSnapshot.QuestionSnap> orderedQuestions = new ArrayList<>(exam.questions());
+        orderedQuestions.sort(Comparator
+                .comparing((ExamSnapshot.QuestionSnap question) ->
+                        indexes.getOrDefault(question.partId(), Integer.MAX_VALUE))
                 .thenComparing(ExamSnapshot.QuestionSnap::orderIndex));
-        List<ExamSnapshot.QuestionSnap> orderedQuestions =
-                submission.getPartOrder() == null ? exam.questions() : displayQuestions;
         Map<UUID, Integer> questionNumbers = new HashMap<>();
-        for (int i = 0; i < displayQuestions.size(); i++) {
-            questionNumbers.put(displayQuestions.get(i).id(), i + 1);
+        for (int i = 0; i < orderedQuestions.size(); i++) {
+            questionNumbers.put(orderedQuestions.get(i).id(), i + 1);
         }
-        Map<UUID, ExamSnapshot.PartSnap> partsById = exam.parts().stream()
-                .collect(Collectors.toMap(ExamSnapshot.PartSnap::id, Function.identity()));
         Map<UUID, SubmissionAnswer> answerByQuestion = new HashMap<>();
         answers.forEach(a -> answerByQuestion.put(a.questionId(), a));
         Map<UUID, String> firstQuestionPartTypes = firstQuestionPartTypes(exam.questions());
@@ -615,12 +654,15 @@ public class SubmissionService {
                 .totalCorrect(totalCorrect)
                 .totalIncorrect(totalQuestions - totalCorrect)
                 .score(totalCorrect * 0.25)
-                .startedAt(submission.getStartedAt())
-                .submittedAt(toUtc(submission.getSubmittedAt()))
+                .startedAt(toVietnamTime(submission.getStartedAt()))
+                .submittedAt(toVietnamTime(submission.getSubmittedAt()))
                 .partTimeLogs(partTimeLogs(submission, order))
                 .partTranslations(partTranslations(exam, indexes))
                 .parts(content != ResultContent.HOMEWORK_REVIEW ? order.stream()
-                        .map(partsById::get)
+                        .map(partId -> exam.parts().stream()
+                                .filter(part -> part.id().equals(partId))
+                                .findFirst()
+                                .orElseThrow())
                         .map(part -> ExamResultResponse.ReviewPartDto.builder()
                                 .partId(part.id())
                                 .partName(part.name())
@@ -669,57 +711,49 @@ public class SubmissionService {
         return answers;
     }
 
-    private void savePartTimeLogs(SubmitExamRequest request, Submission submission, ExamSnapshot exam) {
-        if (request.getPartLogs() == null || request.getPartLogs().isEmpty()) {
+    private void accumulateActivePartTime(Submission submission, LocalDateTime endedAt) {
+        if (submission.getActivePart() == null || submission.getActivePartStartedAt() == null) {
+            submission.setActivePart(null);
+            submission.setActivePartStartedAt(null);
             return;
         }
-        Set<UUID> examPartIds = exam.partIds();
-        Map<UUID, PartTimeLog> existingLogs = partTimeLogRepository
-                .findBySubmissionIdOrderByCreatedAtAsc(submission.getId()).stream()
-                .collect(Collectors.toMap(l -> l.getPart().getId(), Function.identity(), (a, b) -> a));
-        List<PartTimeLog> logs = new ArrayList<>();
-        for (SubmitExamRequest.PartTimeLogDto log : request.getPartLogs()) {
-            if (log == null || log.getPartId() == null) {
-                throw new IllegalArgumentException("Mỗi partLog phải có partId.");
-            }
-            if (!examPartIds.contains(log.getPartId())) {
-                throw new IllegalArgumentException(
-                        "Part " + log.getPartId() + " không thuộc đề thi của submission.");
-            }
-            if (log.getTimeSpentSeconds() == null || log.getTimeSpentSeconds() < 0) {
-                throw new IllegalArgumentException(
-                        "timeSpentSeconds của part " + log.getPartId() + " phải >= 0.");
-            }
-            PartTimeLog entity = existingLogs.get(log.getPartId());
-            if (entity == null) {
-                entity = PartTimeLog.builder()
-                        .submission(submission)
-                        .part(examPartRepository.getReferenceById(log.getPartId()))
-                        .build();
-                existingLogs.put(log.getPartId(), entity);
-            }
-            entity.setTimeSpentSeconds(log.getTimeSpentSeconds());
-            logs.add(entity);
+
+        long elapsedSeconds = Math.max(0L,
+                Duration.between(submission.getActivePartStartedAt(), endedAt).getSeconds());
+        if (elapsedSeconds > 0) {
+            PartTimeLog log = partTimeLogRepository
+                    .findBySubmissionIdAndPartId(submission.getId(), submission.getActivePart().getId())
+                    .orElseGet(() -> PartTimeLog.builder()
+                            .submission(submission)
+                            .part(submission.getActivePart())
+                            .timeSpentSeconds(0)
+                            .build());
+            int currentSeconds = Optional.ofNullable(log.getTimeSpentSeconds()).orElse(0);
+            log.setTimeSpentSeconds(Math.addExact(currentSeconds, Math.toIntExact(elapsedSeconds)));
+            partTimeLogRepository.save(log);
         }
-        partTimeLogRepository.saveAll(logs);
+        submission.setActivePart(null);
+        submission.setActivePartStartedAt(null);
     }
 
     private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(Submission submission) {
-        return partTimeLogs(submission, resolvedPartOrder(submission, ensureSnapshot(submission)));
+        return partTimeLogs(submission, null);
     }
 
-    private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(Submission submission, List<UUID> order) {
-        Map<UUID, Integer> indexes = PartOrder.indexes(order);
-        List<PartTimeLog> logs = new ArrayList<>(partTimeLogRepository.findBySubmissionIdWithPart(submission.getId()));
-        if (submission.getPartOrder() != null) {
-            logs.sort(Comparator.comparing(log -> indexes.getOrDefault(log.getPart().getId(), Integer.MAX_VALUE)));
+    private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(
+            Submission submission, List<UUID> partOrder) {
+        List<PartTimeLog> logs = new ArrayList<>(
+                partTimeLogRepository.findBySubmissionIdWithPart(submission.getId()));
+        if (partOrder != null) {
+            Map<UUID, Integer> indexes = PartOrder.indexes(partOrder);
+            logs.sort(Comparator.comparing(log ->
+                    indexes.getOrDefault(log.getPart().getId(), Integer.MAX_VALUE)));
         }
         return logs.stream()
                 .map(log -> ExamResultResponse.PartTimeLogDto.builder()
                         .partId(log.getPart().getId())
                         .partName(log.getPart().getPartName())
                         .timeSpentSeconds(log.getTimeSpentSeconds())
-                        .displayIndex(indexes.get(log.getPart().getId()))
                         .build())
                 .toList();
     }

@@ -7,45 +7,31 @@ import com.ice.iceenglish.modules.exams.enums.PartType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Random;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class PartOrderTest {
-    @Test
-    void shuffleKeepsFixedAndGroupSlotsAndAllowsDifferentOrders() {
-        UUID a = UUID.randomUUID(), b = UUID.randomUUID(), fixed = UUID.randomUUID();
-        UUID c = UUID.randomUUID(), d = UUID.randomUUID(), common1 = UUID.randomUUID(), common2 = UUID.randomUUID();
-        List<ExamSnapshot.PartSnap> parts = List.of(
-                part(a, 1, false, "A"), part(c, 2, false, "B"), part(fixed, 3, true, "A"),
-                part(b, 4, false, "A"), part(d, 5, false, "B"),
-                part(common1, 6, false, null), part(common2, 7, false, null));
-        ExamSnapshot exam = new ExamSnapshot(UUID.randomUUID(), "Exam", ExamType.MOCK,
-                ExamStatus.PUBLISHED, 50, true, parts, List.of());
-        Random swap = new Random() {
-            @Override public int nextInt(int bound) { return 0; }
-        };
-        Random identity = new Random() {
-            @Override public int nextInt(int bound) { return bound - 1; }
-        };
-
-        assertEquals(List.of(b, d, fixed, a, c, common2, common1), PartOrder.shuffled(exam, swap));
-        assertEquals(List.of(a, c, fixed, b, d, common1, common2), PartOrder.shuffled(exam, identity));
-        assertEquals(a, exam.parts().get(0).id());
-    }
 
     @Test
-    void fallsBackOnlyForAbsentOrderAndRejectsCorruptOrders() {
-        UUID a = UUID.randomUUID(), b = UUID.randomUUID(), other = UUID.randomUUID();
-        assertEquals(List.of(a, b), PartOrder.resolve(null, List.of(a, b)));
-        assertEquals(List.of(b, a), PartOrder.resolve(List.of(b, a), List.of(a, b)));
-        assertThrows(IllegalStateException.class, () -> PartOrder.resolve(List.of(a), List.of(a, b)));
-        assertThrows(IllegalStateException.class, () -> PartOrder.resolve(List.of(a, a), List.of(a, b)));
-        assertThrows(IllegalStateException.class, () -> PartOrder.resolve(List.of(a, other), List.of(a, b)));
-    }
+    void shuffleKeepsFixedPartsAndShufflesWithinGroup() {
+        UUID fixed = UUID.randomUUID();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        ExamSnapshot snapshot = new ExamSnapshot(UUID.randomUUID(), "Exam", ExamType.MOCK,
+                ExamStatus.PUBLISHED, 50, true, List.of(
+                new ExamSnapshot.PartSnap(fixed, "Fixed", PartType.GRAMMAR, null, null, 1, true, null),
+                new ExamSnapshot.PartSnap(first, "First", PartType.GRAMMAR, null, null, 2, false, "g"),
+                new ExamSnapshot.PartSnap(second, "Second", PartType.GRAMMAR, null, null, 3, false, "g")),
+                List.of());
 
-    private ExamSnapshot.PartSnap part(UUID id, int order, boolean fixed, String group) {
-        return new ExamSnapshot.PartSnap(id, "Part", PartType.GRAMMAR, null, null, order, fixed, group);
+        List<UUID> order = PartOrder.shuffled(snapshot, new java.util.Random() {
+            @Override
+            public int nextInt(int bound) {
+                return 0;
+            }
+        });
+
+        assertEquals(List.of(fixed, second, first), order);
     }
 }

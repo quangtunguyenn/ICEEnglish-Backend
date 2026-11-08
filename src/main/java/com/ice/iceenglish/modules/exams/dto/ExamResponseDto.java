@@ -3,6 +3,7 @@ package com.ice.iceenglish.modules.exams.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
+import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import com.ice.iceenglish.modules.exams.enums.PartType;
 import lombok.Builder;
 import lombok.Data;
@@ -20,6 +21,8 @@ public class ExamResponseDto {
     private UUID id;
     private String title;
     private ExamType examType;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private ExamStatus status;
     private UUID videoId;
     private Integer durationMinutes;
     private boolean answersRevealed;

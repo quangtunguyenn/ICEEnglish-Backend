@@ -3,7 +3,7 @@ package com.ice.iceenglish.modules.submissions.dto;
 import lombok.Builder;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.List;
 
@@ -15,8 +15,9 @@ public class StartExamResponse {
     private String mode;
     private Integer totalQuestions;
     private Integer timeLimitMinutes;
-    private LocalDateTime startedAt;
-    private LocalDateTime expiresAt;
+    private OffsetDateTime serverNow;
+    private OffsetDateTime startedAt;
+    private OffsetDateTime expiresAt;
     private List<PartTimeDto> parts;
     private List<UUID> partOrder;
 

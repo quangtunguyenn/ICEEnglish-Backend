@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 @Repository
 public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
@@ -44,16 +45,79 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
     List<UUID> findSubmittedPracticeExamIds(
             @Param("username") String username, @Param("examIds") List<UUID> examIds);
 
+    @Query("select distinct s.exam.id from Submission s "
+            + "where s.user.username = :username and s.exam.id in :examIds and s.mode = :mode")
+    List<UUID> findAttemptedExamIds(
+            @Param("username") String username,
+            @Param("mode") String mode,
+            @Param("examIds") List<UUID> examIds);
+
     Optional<Submission> findFirstByUserIdAndExamIdAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
             UUID userId, UUID examId);
 
     List<Submission> findByUserIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtAsc(
             UUID userId, String mode);
 
+    Page<Submission> findByUserIdAndModeAndSubmittedAtIsNotNull(
+            UUID userId, String mode, Pageable pageable);
+
+    @Query("""
+            select s.exam.id as examId, s.totalCorrect as totalCorrect, s.totalQuestions as totalQuestions
+            from Submission s
+            where s.user.username = :username
+              and s.mode = :mode
+              and s.submittedAt is not null
+              and s.exam.id in :examIds
+              and s.submittedAt = (
+                  select max(latest.submittedAt)
+                  from Submission latest
+                  where latest.user.username = :username
+                    and latest.mode = :mode
+                    and latest.exam.id = s.exam.id
+                    and latest.submittedAt is not null
+              )
+            order by s.submittedAt desc, s.id desc
+            """)
+    List<LatestExamScore> findLatestScoresByExamIds(
+            @Param("username") String username,
+            @Param("mode") String mode,
+            @Param("examIds") List<UUID> examIds);
+
+    interface LatestExamScore {
+        UUID getExamId();
+        Integer getTotalCorrect();
+        Integer getTotalQuestions();
+    }
+
     Optional<Submission> findByIdAndUserUsername(UUID id, String username);
+
+    @Query("select s.id as submissionId, s.exam.id as examId, s.user.id as userId, "
+            + "s.user.fullName as fullName, s.totalCorrect as totalCorrect, s.totalQuestions as totalQuestions, "
+            + "s.startedAt as startedAt, s.submittedAt as submittedAt "
+            + "from Submission s where s.exam.id = :examId and s.mode = 'MOCK' "
+            + "and s.submittedAt is not null")
+    List<MockTopData> findMockTopDataByExamId(@Param("examId") UUID examId);
+
+    @Query("select s.id as submissionId, s.exam.id as examId, s.user.id as userId, "
+            + "s.user.fullName as fullName, s.totalCorrect as totalCorrect, s.totalQuestions as totalQuestions, "
+            + "s.startedAt as startedAt, s.submittedAt as submittedAt "
+            + "from Submission s where s.exam.id in :examIds and s.mode = 'MOCK' "
+            + "and s.submittedAt is not null")
+    List<MockTopData> findMockTopDataByExamIds(@Param("examIds") List<UUID> examIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Submission s where s.id = :id and s.user.username = :username")
     Optional<Submission> findByIdAndUserUsernameForUpdate(
             @Param("id") UUID id, @Param("username") String username);
+
+    interface MockTopData {
+        Integer getTotalCorrect();
+        Integer getTotalQuestions();
+        LocalDateTime getStartedAt();
+        LocalDateTime getSubmittedAt();
+        UUID getSubmissionId();
+        UUID getExamId();
+        UUID getUserId();
+        String getFullName();
+    }
 }
