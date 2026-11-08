@@ -2,6 +2,7 @@ package com.ice.iceenglish.modules.learning.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import lombok.Data;
 
 import java.util.List;
@@ -83,5 +84,15 @@ public class CreateVideoLearningBundleRequest {
     public static class VocabularyInfo {
         private String word;
         private String meaning;
+        @JsonDeserialize(using = StrictVocabularyStringDeserializer.class)
+        private String phonetic;
+        @JsonProperty("example_sentence")
+        @JsonAlias("exampleSentence")
+        @JsonDeserialize(using = StrictVocabularyStringDeserializer.class)
+        private String exampleSentence;
+        @JsonProperty("example_sentence_translate")
+        @JsonAlias("exampleSentenceTranslate")
+        @JsonDeserialize(using = StrictVocabularyStringDeserializer.class)
+        private String exampleSentenceTranslate;
     }
 }

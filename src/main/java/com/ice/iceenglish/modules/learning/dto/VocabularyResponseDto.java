@@ -11,4 +11,7 @@ public class VocabularyResponseDto {
     UUID id;
     String word;
     String meaning;
+    String phonetic;
+    String exampleSentence;
+    String exampleSentenceTranslate;
 }

@@ -115,6 +115,9 @@ public class VideoService {
                         .video(video)
                         .word(item.getWord().trim())
                         .meaning(item.getMeaning().trim())
+                        .phonetic(emptyToNull(item.getPhonetic()))
+                        .exampleSentence(emptyToNull(item.getExampleSentence()))
+                        .exampleSentenceTranslate(emptyToNull(item.getExampleSentenceTranslate()))
                         .build())
                 .toList();
 
@@ -189,11 +192,29 @@ public class VideoService {
                 || request.getVocabularies().isEmpty()) {
             throw validation("homework và vocabularies (ít nhất 1 phần tử): bắt buộc.");
         }
-        for (CreateVideoLearningBundleRequest.VocabularyInfo item : request.getVocabularies()) {
+        for (int i = 0; i < request.getVocabularies().size(); i++) {
+            CreateVideoLearningBundleRequest.VocabularyInfo item = request.getVocabularies().get(i);
             if (item == null || isBlank(item.getWord()) || isBlank(item.getMeaning())) {
                 throw validation("vocabularies: word và meaning là bắt buộc.");
             }
+            String path = "vocabularies[" + i + "].";
+            validateLength(item.getPhonetic(), 250, path + "phonetic");
+            validateLength(item.getExampleSentence(), 5000, path + "example_sentence");
+            validateLength(item.getExampleSentenceTranslate(), 5000, path + "example_sentence_translate");
+            if (!isBlank(item.getExampleSentenceTranslate()) && isBlank(item.getExampleSentence())) {
+                throw validation(path + "example_sentence_translate yêu cầu example_sentence.");
+            }
         }
+    }
+
+    private static void validateLength(String value, int max, String field) {
+        if (value != null && value.codePointCount(0, value.length()) > max) {
+            throw validation(field + ": tối đa " + max + " ký tự.");
+        }
+    }
+
+    private static String emptyToNull(String value) {
+        return isBlank(value) ? null : value;
     }
 
     private static boolean isBlank(String value) {
@@ -272,6 +293,9 @@ public class VideoService {
                         .id(item.getId())
                         .word(item.getWord())
                         .meaning(item.getMeaning())
+                        .phonetic(item.getPhonetic())
+                        .exampleSentence(item.getExampleSentence())
+                        .exampleSentenceTranslate(item.getExampleSentenceTranslate())
                         .build())
                 .toList();
     }

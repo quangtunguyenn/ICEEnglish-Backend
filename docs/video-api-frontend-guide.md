@@ -43,7 +43,13 @@ Mẫu file: `samples/learning-bundle-sample.json`.
     ]
   },
   "vocabularies": [
-    { "word": "asparagus", "meaning": "măng tây" }
+    {
+      "word": "asparagus",
+      "meaning": "măng tây",
+      "phonetic": "/əˈspær.ə.ɡəs/",
+      "example_sentence": "I ate asparagus for lunch.",
+      "example_sentence_translate": "Tôi ăn măng tây vào bữa trưa."
+    }
   ]
 }
 ```
@@ -54,6 +60,9 @@ Quy tắc:
 - `answers_url` lấy từ `homework.answers_url`; nếu không có thì lấy `video.answers_url`.
 - Homework không có part, câu hỏi nằm trực tiếp trong exam.
 - Lỗi dữ liệu trả `400` với thông báo tiếng Việt (JSON sai cú pháp có kèm dòng/cột).
+- `phonetic`, `example_sentence` và `example_sentence_translate` là chuỗi tùy chọn hoặc `null`. Chuỗi trắng được lưu thành `null`; chuỗi không rỗng được giữ nguyên. Phiên âm tối đa 250 ký tự Unicode, mỗi câu ví dụ và bản dịch tối đa 5.000 ký tự Unicode.
+- Nếu bản dịch không rỗng thì `example_sentence` cũng phải không rỗng; sai kiểu hoặc vượt giới hạn trả `400`. Bundle cũ không có các trường này vẫn dùng được. Ngoài snake_case, import cũng nhận alias `exampleSentence` và `exampleSentenceTranslate`.
+- Trước khi triển khai backend mới, áp dụng migration `src/main/resources/db/migration/V7__Add_video_vocabulary_details.sql` theo quy trình database của dự án. Các cột mới nullable, dữ liệu cũ không cần import lại; migration không tự chạy bởi Flyway trong cấu hình hiện tại.
 
 Response:
 ```json
@@ -101,7 +110,11 @@ Dùng `video_id` để gọi `GET /videos/{videoId}/vocabularies`.
   "videoUrl": "https://www.youtube.com/watch?v=...",
   "documentUrl": "https://drive.google.com/...",
   "homework": { "...xem 1.6..." },
-  "vocabularies": [ { "id": "uuid", "word": "asparagus", "meaning": "măng tây" } ]
+  "vocabularies": [ {
+    "id": "uuid", "word": "asparagus", "meaning": "măng tây",
+    "phonetic": "/əˈspær.ə.ɡəs/", "exampleSentence": "I ate asparagus for lunch.",
+    "exampleSentenceTranslate": "Tôi ăn măng tây vào bữa trưa."
+  } ]
 }
 ```
 
@@ -160,8 +173,14 @@ Dùng `video_id` để gọi `GET /videos/{videoId}/vocabularies`.
 `GET /videos/{videoId}/vocabularies`
 
 ```json
-[ { "id": "uuid", "word": "asparagus", "meaning": "măng tây" } ]
+[ {
+  "id": "uuid", "word": "asparagus", "meaning": "măng tây",
+  "phonetic": "/əˈspær.ə.ɡəs/", "exampleSentence": "I ate asparagus for lunch.",
+  "exampleSentenceTranslate": "Tôi ăn măng tây vào bữa trưa."
+} ]
 ```
+
+Ba trường mới trả về `null` nếu không có dữ liệu. Hai endpoint video mẫu của khách cũng trả cùng các trường, nhưng vẫn kiểm tra quyền truy cập video như trước. Với flashcard, frontend hiển thị `word` hoặc `meaning` theo mặt thẻ; cả hai mặt dùng `phonetic` và câu tiếng Anh `exampleSentence`. Bản dịch `exampleSentenceTranslate` dành cho khu vực từ vựng trên trang video.
 
 ### 1.9 Trạng thái hiển thị đáp án
 

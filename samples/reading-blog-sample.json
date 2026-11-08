@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "blog": {
+    "title": "Small Gardens, Big Changes",
+    "topic": { "slug": "environment", "name": "Environment" },
+    "content_type": "ARTICLE",
+    "difficulty": "MEDIUM",
+    "summary": "How a school garden can benefit students and neighbours.",
+    "estimated_reading_minutes": 3,
+    "guest_accessible": true,
+    "cover_image_url": null,
+    "source_name": "Original educational content",
+    "source_url": null
+  },
+  "passage_blocks": [
+    {
+      "id": "p1",
+      "text": "Students turned an empty space into a small garden. They wanted to grow vegetables and learn about nature.",
+      "translation": "Các học sinh biến một khu đất trống thành khu vườn nhỏ. Các em muốn trồng rau và tìm hiểu về thiên nhiên."
+    },
+    {
+      "id": "p2",
+      "text": "After six months, the garden provided food for school lunches and became a place for neighbours to work together.",
+      "translation": "Sau sáu tháng, khu vườn cung cấp thực phẩm cho bữa trưa ở trường và trở thành nơi hàng xóm cùng làm việc."
+    }
+  ],
+  "vocabularies": [
+    {
+      "order_index": 1,
+      "word": "provide",
+      "phonetic": "/prəˈvaɪd/",
+      "meaning": "cung cấp",
+      "example_sentence": "The garden provides fresh vegetables.",
+      "example_translation": "Khu vườn cung cấp rau tươi.",
+      "passage_block_id": "p2"
+    }
+  ],
+  "questions": [
+    {
+      "order_index": 1,
+      "content": "What is the passage mainly about?",
+      "skill_type": "SKIMMING",
+      "evidence_block_ids": ["p1", "p2"],
+      "explanation": "Hai đoạn đều đề cập đến việc học sinh tạo ra khu vườn và lợi ích của nó.",
+      "answers": [
+        { "option_key": "A", "content": "A school garden benefits students and neighbours.", "is_correct": true, "explanation": "Đáp án bao quát ý chính của bài." },
+        { "option_key": "B", "content": "Every school has a large farm.", "is_correct": false, "explanation": "Bài nói về một khu vườn nhỏ." },
+        { "option_key": "C", "content": "Students stopped learning about nature.", "is_correct": false, "explanation": "Điều này trái với đoạn đầu." },
+        { "option_key": "D", "content": "Neighbours refused to use the garden.", "is_correct": false, "explanation": "Hàng xóm cùng làm việc trong khu vườn." }
+      ]
+    },
+    {
+      "order_index": 2,
+      "content": "How long did it take for the garden to provide food?",
+      "skill_type": "SCANNING",
+      "evidence_block_ids": ["p2"],
+      "explanation": "Tìm cụm chỉ thời gian ở đầu đoạn hai: 'After six months'.",
+      "answers": [
+        { "option_key": "A", "content": "One month", "is_correct": false, "explanation": "Bài đọc không đưa ra mốc này." },
+        { "option_key": "B", "content": "Three months", "is_correct": false, "explanation": "Bài đọc không đưa ra mốc này." },
+        { "option_key": "C", "content": "Six months", "is_correct": true, "explanation": "Mốc thời gian xuất hiện ở đầu đoạn hai." },
+        { "option_key": "D", "content": "One year", "is_correct": false, "explanation": "Bài đọc không nói một năm." }
+      ]
+    }
+  ]
+}

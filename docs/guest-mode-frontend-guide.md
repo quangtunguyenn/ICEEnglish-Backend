@@ -127,6 +127,8 @@ GET /api/v1/guest/videos/{videoId}/vocabularies
 
 `learning-content` trả video, tài liệu, homework và từ vựng như API học sinh, nhưng không trả URL đáp án homework trước khi nộp. Video khác trả `404` dù khách biết ID.
 
+Các từ vựng trong hai API khách có thêm `phonetic`, `exampleSentence`, `exampleSentenceTranslate`; các giá trị có thể là `null` với dữ liệu cũ. Xem `video-api-frontend-guide.md` để biết chi tiết.
+
 ### 4.1 Homework
 
 ```http

@@ -30,6 +30,15 @@ public class Vocabulary {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String meaning;
 
+    @Column(length = 250)
+    private String phonetic;
+
+    @Column(name = "example_sentence", columnDefinition = "TEXT")
+    private String exampleSentence;
+
+    @Column(name = "example_sentence_translate", columnDefinition = "TEXT")
+    private String exampleSentenceTranslate;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

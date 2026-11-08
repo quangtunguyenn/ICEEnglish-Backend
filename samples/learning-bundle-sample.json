@@ -42,7 +42,13 @@
     ]
   },
   "vocabularies": [
-    { "word": "conversation", "meaning": "cuộc hội thoại" },
+    {
+      "word": "conversation",
+      "meaning": "cuộc hội thoại",
+      "phonetic": "/ˌkɒn.vəˈseɪ.ʃən/",
+      "example_sentence": "We had a conversation about school.",
+      "example_sentence_translate": "Chúng tôi đã trò chuyện về trường học."
+    },
     { "word": "ambition", "meaning": "hoài bão, ước mơ, vọng tưởng" },
     { "word": "get up", "meaning": "thức dậy" }
   ]
