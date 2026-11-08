@@ -595,6 +595,36 @@ public class SubmissionService {
     private ExamResultResponse toResultResponse(
             Submission submission, ExamSnapshot exam, List<SubmissionAnswer> answers,
             ResultContent content) {
+        return toResultResponse(submission, exam, answers, content,
+                partTimeLogs(submission, resolvedPartOrder(submission, exam)), null, false);
+    }
+
+    public ExamResultResponse gradeGuest(ExamSnapshot exam, List<UUID> partOrder,
+            LocalDateTime startedAt, LocalDateTime submittedAt, SubmitExamRequest request,
+            List<ExamResultResponse.PartTimeLogDto> logs, UUID sampleVideoId) {
+        Map<UUID, String> selected = mapAnswers(request, exam.questionsById());
+        List<SubmissionAnswer> answers = exam.questions().stream().map(question -> {
+            String value = selected.get(question.id());
+            return new SubmissionAnswer(question.id(), value,
+                    value != null && question.correctOpt() != null
+                            && question.correctOpt().equalsIgnoreCase(value));
+        }).toList();
+        int correct = (int) answers.stream().filter(a -> Boolean.TRUE.equals(a.isCorrect())).count();
+        Submission temporary = Submission.builder()
+                .partOrder(partOrder)
+                .startedAt(startedAt)
+                .submittedAt(submittedAt)
+                .totalQuestions(exam.totalQuestions())
+                .totalCorrect(correct)
+                .build();
+        return toResultResponse(temporary, exam, answers, ResultContent.SUBMISSION,
+                logs, sampleVideoId, true);
+    }
+
+    private ExamResultResponse toResultResponse(
+            Submission submission, ExamSnapshot exam, List<SubmissionAnswer> answers,
+            ResultContent content, List<ExamResultResponse.PartTimeLogDto> logs,
+            UUID sampleVideoId, boolean guest) {
         List<UUID> order = resolvedPartOrder(submission, exam);
         Map<UUID, Integer> indexes = PartOrder.indexes(order);
         List<ExamSnapshot.QuestionSnap> orderedQuestions = new ArrayList<>(exam.questions());
@@ -617,7 +647,7 @@ public class SubmissionService {
                     ExamResultResponse.RelatedVideoDto videoDto = content != ResultContent.HOMEWORK_REVIEW
                             && (content == ResultContent.REVIEW
                             || !Boolean.TRUE.equals(answer.isCorrect()))
-                            && video != null
+                            && video != null && (!guest || video.id().equals(sampleVideoId))
                             ? ExamResultResponse.RelatedVideoDto.builder()
                                     .videoId(video.id())
                                     .videoTitle(video.title())
@@ -656,7 +686,7 @@ public class SubmissionService {
                 .score(totalCorrect * 0.25)
                 .startedAt(toVietnamTime(submission.getStartedAt()))
                 .submittedAt(toVietnamTime(submission.getSubmittedAt()))
-                .partTimeLogs(partTimeLogs(submission, order))
+                .partTimeLogs(logs)
                 .partTranslations(partTranslations(exam, indexes))
                 .parts(content != ResultContent.HOMEWORK_REVIEW ? order.stream()
                         .map(partId -> exam.parts().stream()
