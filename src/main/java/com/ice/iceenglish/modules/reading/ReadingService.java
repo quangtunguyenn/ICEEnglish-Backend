@@ -3,10 +3,12 @@ package com.ice.iceenglish.modules.reading;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.ice.iceenglish.core.cache.CacheRegistry;
 import com.ice.iceenglish.modules.reading.ReadingDtos.*;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,6 +19,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -24,14 +27,34 @@ import java.util.Set;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class ReadingService {
     private static final long MAX_FILE_BYTES = 2 * 1024 * 1024;
     private static final Set<String> STATUS = Set.of("DRAFT", "PUBLISHED", "ARCHIVED");
     private static final Set<String> TYPES = Set.of("ARTICLE", "MAGAZINE", "STORY", "PASSAGE");
+    private static final Set<String> OPTIONS = Set.of("A", "B", "C", "D");
+    private static final String BLOG_SQL = """
+            SELECT b.*,t.slug,t.name FROM reading_blogs b
+            JOIN reading_topics t ON t.id=b.topic_id WHERE b.id=?
+            """;
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final ReadingImportValidator validator;
+    private final CacheRegistry cacheRegistry;
+    private final Cache<UUID, PublishedBlog> publishedBlogs;
+    private final Cache<PageKey, Page> pages;
+    private final Cache<String, List<Topic>> topicList;
+
+    public ReadingService(JdbcTemplate jdbc, ObjectMapper mapper, ReadingImportValidator validator,
+                          CacheRegistry cacheRegistry) {
+        this.jdbc = jdbc;
+        this.mapper = mapper;
+        this.validator = validator;
+        this.cacheRegistry = cacheRegistry;
+        this.publishedBlogs = cacheRegistry.create(500);
+        this.pages = cacheRegistry.create(500);
+        this.topicList = cacheRegistry.create(1);
+    }
 
     @Transactional
     public ImportResult importFile(MultipartFile file, String username) {
@@ -90,7 +113,7 @@ public class ReadingService {
         return new ImportResult(id, "DRAFT", 1);
     }
 
-    @Transactional(readOnly = true)
+    /** Danh sách cho học sinh được cache (trừ khi tìm theo từ khoá); admin luôn đọc trực tiếp từ DB. */
     public Page list(boolean admin, boolean guest, String topic, String type, String keyword,
                      String status, int page, int size) {
         if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
@@ -105,7 +128,17 @@ public class ReadingService {
         if (keyword != null && keyword.length() > 200) {
             throw error(HttpStatus.BAD_REQUEST, "keyword tối đa 200 ký tự.");
         }
-        StringBuilder where = new StringBuilder(" WHERE 1=1");
+        boolean searching = keyword != null && !keyword.isBlank();
+        if (admin || searching) {
+            return cacheRegistry.callReadOnly(
+                    () -> queryPage(admin, guest, topic, type, keyword, status, page, size));
+        }
+        return cacheRegistry.getOrLoad(pages, new PageKey(guest, topic, type, page, size),
+                () -> queryPage(false, guest, topic, type, null, null, page, size));
+    }
+
+    private Page queryPage(boolean admin, boolean guest, String topic, String type, String keyword,
+                           String status, int page, int size) {        StringBuilder where = new StringBuilder(" WHERE 1=1");
         List<Object> args = new ArrayList<>();
         if (!admin) where.append(" AND b.status='PUBLISHED'");
         else if (status != null) { where.append(" AND b.status=?"); args.add(status); }
@@ -126,58 +159,80 @@ public class ReadingService {
         return new Page(items, page, size, count, (count + size - 1) / size);
     }
 
-    @Transactional(readOnly = true)
     public List<Topic> topics() {
-        return jdbc.query("""
+        return cacheRegistry.getOrLoad(topicList, "ALL", () -> jdbc.query("""
                 SELECT DISTINCT t.slug,t.name FROM reading_topics t
                 JOIN reading_blogs b ON b.topic_id=t.id WHERE b.status='PUBLISHED' ORDER BY t.name,t.slug
-                """, (rs, row) -> new Topic(rs.getString("slug"), rs.getString("name")));
+                """, (rs, row) -> new Topic(rs.getString("slug"), rs.getString("name"))));
     }
 
-    @Transactional(readOnly = true)
     public Detail detail(UUID id, boolean guest) {
-        Row blog = getBlog(id, false, guest);
-        return new Detail(blog.item(), blog.revision(), readBlocks(blog.blocks()), questions(id),
-                vocabulary(id), blog.sourceName(), blog.sourceUrl());
+        PublishedBlog blog = published(id, guest);
+        return new Detail(blog.item(), blog.revision(), blog.blocks(), blog.questions(),
+                blog.vocabularies(), blog.sourceName(), blog.sourceUrl());
     }
 
     @Transactional(readOnly = true)
     public AdminDetail adminDetail(UUID id) {
-        Row blog = getBlog(id, true, false);
+        Row blog = getBlog(id);
         return new AdminDetail(blog.item(), blog.revision(), readBlocks(blog.blocks()),
                 adminQuestions(id), vocabulary(id), blog.sourceName(), blog.sourceUrl(), blog.createdBy());
     }
 
-    @Transactional(readOnly = true)
     public List<Vocabulary> vocabularies(UUID id, boolean guest) {
-        getBlog(id, false, guest);
-        return vocabulary(id);
+        return published(id, guest).vocabularies();
     }
 
-    @Transactional(readOnly = true)
     public AnswerResult answer(UUID id, UUID questionId, AnswerRequest request, boolean guest) {
-        Row blog = getBlog(id, false, guest);
+        PublishedBlog blog = published(id, guest);
         if (request == null || request.revision() == null || request.selectedOption() == null
-                || !Set.of("A", "B", "C", "D").contains(request.selectedOption())) {
+                || !OPTIONS.contains(request.selectedOption())) {
             throw error(HttpStatus.BAD_REQUEST, "revision và selectedOption A, B, C hoặc D là bắt buộc.");
         }
         if (blog.revision() != request.revision()) {
             throw error(HttpStatus.CONFLICT, "Bài đọc đã thay đổi, vui lòng tải lại.");
         }
-        List<AnswerResult> results = jdbc.query("""
+        AnswerResult result = blog.answerKeys().getOrDefault(questionId, Map.of()).get(request.selectedOption());
+        if (result == null) throw error(HttpStatus.NOT_FOUND, "Không tìm thấy câu hỏi hoặc lựa chọn.");
+        return result;
+    }
+
+    /** Bài PUBLISHED (và guest_accessible nếu là khách) lấy từ cache; cache hit không chiếm kết nối DB. */
+    private PublishedBlog published(UUID id, boolean guest) {
+        PublishedBlog blog = cacheRegistry.getOrLoad(publishedBlogs, id, () -> loadPublished(id));
+        if (blog == null || (guest && !blog.guestAccessible())) {
+            throw error(HttpStatus.NOT_FOUND, "Không tìm thấy bài đọc.");
+        }
+        return blog;
+    }
+
+    private PublishedBlog loadPublished(UUID id) {
+        List<Row> rows = jdbc.query(BLOG_SQL + " AND b.status='PUBLISHED'", rowMapper(false, false), id);
+        if (rows.isEmpty()) return null;
+        Row blog = rows.get(0);
+        return new PublishedBlog(blog.item(), blog.revision(), readBlocks(blog.blocks()), questions(id),
+                vocabulary(id), blog.sourceName(), blog.sourceUrl(), answerKeys(id));
+    }
+
+    private Map<UUID, Map<String, AnswerResult>> answerKeys(UUID blogId) {
+        Map<UUID, Map<String, AnswerResult>> keys = new HashMap<>();
+        jdbc.query("""
                 SELECT q.id,q.explanation,q.evidence_block_ids,a.option_key,a.is_correct,a.explanation AS option_explanation
                 FROM reading_questions q JOIN reading_answers a ON a.question_id=q.id
-                WHERE q.blog_id=? AND q.id=? AND a.option_key=?
-                """, (rs, n) -> new AnswerResult(rs.getObject("id", UUID.class), rs.getString("option_key"),
-                rs.getBoolean("is_correct"), rs.getString("option_explanation"), rs.getString("explanation"),
-                readStrings(rs.getString("evidence_block_ids"))), id, questionId, request.selectedOption());
-        if (results.isEmpty()) throw error(HttpStatus.NOT_FOUND, "Không tìm thấy câu hỏi hoặc lựa chọn.");
-        return results.get(0);
+                WHERE q.blog_id=?
+                """, rs -> {
+            UUID questionId = rs.getObject("id", UUID.class);
+            String option = rs.getString("option_key");
+            keys.computeIfAbsent(questionId, k -> new HashMap<>()).put(option, new AnswerResult(questionId, option,
+                    rs.getBoolean("is_correct"), rs.getString("option_explanation"), rs.getString("explanation"),
+                    readStrings(rs.getString("evidence_block_ids"))));
+        }, blogId);
+        return keys;
     }
 
     @Transactional
     public void publish(UUID id) {
-        Row blog = getBlog(id, true, false);
+        Row blog = getBlog(id);
         Integer invalid = jdbc.queryForObject("""
                 SELECT count(*) FROM reading_questions q WHERE q.blog_id=? AND
                   ((SELECT count(*) FROM reading_answers a WHERE a.question_id=q.id)<>4 OR
@@ -191,11 +246,13 @@ public class ReadingService {
                 UPDATE reading_blogs SET status='PUBLISHED',published_at=COALESCE(published_at,now()),
                   updated_at=now() WHERE id=?
                 """, id);
+        evictReadingCaches();
     }
 
     @Transactional
     public void archive(UUID id) {
         updateExisting("UPDATE reading_blogs SET status='ARCHIVED',updated_at=now() WHERE id=?", id);
+        evictReadingCaches();
     }
 
     @Transactional
@@ -206,23 +263,27 @@ public class ReadingService {
         int changed = jdbc.update("UPDATE reading_blogs SET guest_accessible=?,updated_at=now() WHERE id=?",
                 request.guestAccessible(), id);
         if (changed == 0) throw error(HttpStatus.NOT_FOUND, "Không tìm thấy bài đọc.");
+        evictReadingCaches();
+    }
+
+    private void evictReadingCaches() {
+        cacheRegistry.evictAfterCommit(publishedBlogs, pages, topicList);
     }
 
     private void updateExisting(String sql, UUID id) {
         if (jdbc.update(sql, id) == 0) throw error(HttpStatus.NOT_FOUND, "Không tìm thấy bài đọc.");
     }
 
-    private Row getBlog(UUID id, boolean admin, boolean guest) {
-        String access = admin ? "" : guest
-                ? " AND b.status='PUBLISHED' AND b.guest_accessible=true" : " AND b.status='PUBLISHED'";
-        List<Row> rows = jdbc.query("""
-                SELECT b.*,t.slug,t.name FROM reading_blogs b
-                JOIN reading_topics t ON t.id=b.topic_id WHERE b.id=?
-                """ + access, (rs, n) -> new Row(item(rs, admin, guest), rs.getInt("revision"),
-                rs.getString("passage_blocks"), rs.getString("source_name"), rs.getString("source_url"),
-                rs.getString("created_by")), id);
+    private Row getBlog(UUID id) {
+        List<Row> rows = jdbc.query(BLOG_SQL, rowMapper(true, false), id);
         if (rows.isEmpty()) throw error(HttpStatus.NOT_FOUND, "Không tìm thấy bài đọc.");
         return rows.get(0);
+    }
+
+    private static RowMapper<Row> rowMapper(boolean admin, boolean guest) {
+        return (rs, n) -> new Row(item(rs, admin, guest), rs.getInt("revision"),
+                rs.getString("passage_blocks"), rs.getString("source_name"), rs.getString("source_url"),
+                rs.getString("created_by"));
     }
 
     private static ListItem item(ResultSet rs, boolean admin, boolean guest) throws SQLException {
@@ -302,4 +363,14 @@ public class ReadingService {
         return new ResponseStatusException(status, message);
     }
     private record Row(ListItem item, int revision, String blocks, String sourceName, String sourceUrl, String createdBy) {}
+
+    private record PageKey(boolean guest, String topic, String type, int page, int size) {}
+
+    private record PublishedBlog(ListItem item, int revision, List<Block> blocks, List<Question> questions,
+            List<Vocabulary> vocabularies, String sourceName, String sourceUrl,
+            Map<UUID, Map<String, AnswerResult>> answerKeys) {
+        boolean guestAccessible() {
+            return item.guestAccessible();
+        }
+    }
 }

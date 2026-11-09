@@ -52,15 +52,29 @@ public class CacheRegistry {
 
     /** Xoá sau khi transaction ghi commit để request khác không nạp lại dữ liệu cũ vào cache. */
     public void evictAllAfterCommit() {
+        afterCommit(this::evictAll);
+    }
+
+    /** Chỉ xoá các cache được chỉ định (vd. nội dung bài đọc), giữ nguyên cache đề thi/video. */
+    public void evictAfterCommit(Cache<?, ?>... targets) {
+        afterCommit(() -> List.of(targets).forEach(Cache::invalidateAll));
+    }
+
+    /** Chạy {@code query} trong transaction chỉ đọc (dùng cho truy vấn không đi qua cache). */
+    public <V> V callReadOnly(Supplier<V> query) {
+        return readOnlyTx.execute(status -> query.get());
+    }
+
+    private void afterCommit(Runnable action) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    evictAll();
+                    action.run();
                 }
             });
         } else {
-            evictAll();
+            action.run();
         }
     }
 

@@ -25,7 +25,6 @@ import com.ice.iceenglish.modules.submissions.repository.PartTimeLogRepository;
 import com.ice.iceenglish.modules.submissions.repository.SubmissionRepository;
 import com.ice.iceenglish.modules.users.entity.User;
 import com.ice.iceenglish.modules.users.repository.UserRepository;
-import com.ice.iceenglish.core.time.ServerTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -45,13 +44,12 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.ice.iceenglish.modules.submissions.service.ExamResultAssembler.POINTS_PER_CORRECT_ANSWER;
+import static com.ice.iceenglish.modules.submissions.service.ExamResultAssembler.toVietnamTime;
+
 @Service
 @RequiredArgsConstructor
 public class SubmissionService {
-
-    private enum ResultContent {
-        SUBMISSION, REVIEW, HOMEWORK_REVIEW
-    }
 
     private final SubmissionRepository submissionRepository;
     private final SubDetailRepository subDetailRepository;
@@ -146,7 +144,7 @@ public class SubmissionService {
                 .findFirstByUserIdAndExamIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtDesc(
                         user.getId(), examId, "GENERAL_EXAM")
                 .orElseThrow(() -> new IllegalArgumentException("Chưa có kết quả luyện đề."));
-        return toScoreResponse(submission);
+        return ExamResultAssembler.toScoreResponse(submission);
     }
 
     /** Chi tiết bài luyện đề (GENERAL_EXAM) gần nhất; chỉ lộ đáp án đúng/lời giải khi đề đã công bố đáp án. */
@@ -186,7 +184,7 @@ public class SubmissionService {
                 .map(submission -> PracticeHistoryResponse.Item.builder()
                         .submissionId(submission.getId())
                         .submittedAt(toVietnamTime(submission.getSubmittedAt()))
-                        .score(Optional.ofNullable(submission.getTotalCorrect()).orElse(0) * 0.25)
+                        .score(Optional.ofNullable(submission.getTotalCorrect()).orElse(0) * POINTS_PER_CORRECT_ANSWER)
                         .totalQuestions(submission.getTotalQuestions())
                         .totalCorrect(Optional.ofNullable(submission.getTotalCorrect()).orElse(0))
                         .build())
@@ -235,13 +233,6 @@ public class SubmissionService {
         return result;
     }
 
-    private OffsetDateTime toVietnamTime(LocalDateTime timestamp) {
-        if (timestamp == null) {
-            return null;
-        }
-        return timestamp.atZone(ServerTime.ZONE_ID).toOffsetDateTime();
-    }
-
     @Transactional(readOnly = true)
     public HomeworkReviewResponse reviewLatestHomework(UUID examId, String username) {
         User user = requireStudentAndGet(username);
@@ -260,7 +251,7 @@ public class SubmissionService {
                 .findByUserIdAndModeAndSubmittedAtIsNotNullOrderBySubmittedAtAsc(
                         user.getId(), "MOCK")
                 .stream()
-                .map(this::toScoreResponse)
+                .map(ExamResultAssembler::toScoreResponse)
                 .toList();
     }
 
@@ -269,7 +260,7 @@ public class SubmissionService {
         User user = requireStudentAndGet(username);
         return submissionRepository
                 .findByUserIdAndModeAndSubmittedAtIsNotNull(user.getId(), "MOCK", pageable)
-                .map(this::toScoreResponse);
+                .map(ExamResultAssembler::toScoreResponse);
     }
 
     @Transactional(readOnly = true)
@@ -283,7 +274,7 @@ public class SubmissionService {
         for (SubmissionRepository.LatestExamScore latest
                 : submissionRepository.findLatestScoresByExamIds(username, mode, List.copyOf(examIds))) {
             int totalCorrect = Optional.ofNullable(latest.getTotalCorrect()).orElse(0);
-            scores.putIfAbsent(latest.getExamId(), totalCorrect * 0.25);
+            scores.putIfAbsent(latest.getExamId(), totalCorrect * POINTS_PER_CORRECT_ANSWER);
         }
         return scores;
     }
@@ -457,7 +448,7 @@ public class SubmissionService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đề thi."));
         List<ExamSnapshot.QuestionSnap> questions = exam.questions();
 
-        Map<UUID, String> userAnswers = mapAnswers(request, exam.questionsById());
+        Map<UUID, String> userAnswers = SubmittedAnswers.parse(request, exam.questionsById());
 
         int totalQuestions = questions.size();
         int totalCorrect = 0;
@@ -494,40 +485,6 @@ public class SubmissionService {
         return toResultResponse(submission, exam, detailsToSave.stream()
                 .map(d -> new SubmissionAnswer(d.getQuestion().getId(), d.getSelectedOpt(), d.getIsCorrect()))
                 .toList(), ResultContent.SUBMISSION);
-    }
-
-    /** Map questionId -> partType, chỉ cho câu đầu tiên của mỗi part READING_8 / READING_10. */
-    private Map<UUID, String> firstQuestionPartTypes(Collection<ExamSnapshot.QuestionSnap> questions) {
-        Map<UUID, ExamSnapshot.QuestionSnap> firstByPart = new HashMap<>();
-        for (ExamSnapshot.QuestionSnap question : questions) {
-            if (question.partId() == null || (question.partType() != PartType.READING_8
-                    && question.partType() != PartType.READING_10)) {
-                continue;
-            }
-            firstByPart.merge(question.partId(), question, (current, candidate) ->
-                    candidate.orderIndex() < current.orderIndex() ? candidate : current);
-        }
-        Map<UUID, String> result = new HashMap<>();
-        firstByPart.values().forEach(question -> result.put(question.id(), question.partType().name()));
-        return result;
-    }
-
-    private List<ExamResultResponse.PartTranslationDto> partTranslations(
-            ExamSnapshot exam, Map<UUID, Integer> indexes) {
-        return exam.parts().stream()
-                .filter(part -> (part.partType() == PartType.READING_8
-                        || part.partType() == PartType.READING_10)
-                        && (part.passageText() != null || part.translate() != null))
-                .sorted(Comparator.comparing(part ->
-                        indexes.getOrDefault(part.id(), Integer.MAX_VALUE)))
-                .map(part -> ExamResultResponse.PartTranslationDto.builder()
-                        .partId(part.id())
-                        .partName(part.name())
-                        .partType(part.partType().name())
-                        .passageText(part.passageText())
-                        .translate(part.translate())
-                        .build())
-                .toList();
     }
 
     private void validateRequest(SubmitExamRequest request) {
@@ -567,23 +524,6 @@ public class SubmissionService {
         }
     }
 
-    private SubmissionScoreResponse toScoreResponse(Submission submission) {
-        int totalCorrect = Optional.ofNullable(submission.getTotalCorrect()).orElse(0);
-        int totalQuestions = Optional.ofNullable(submission.getTotalQuestions()).orElse(0);
-        return SubmissionScoreResponse.builder()
-                .submissionId(submission.getId())
-                .examId(submission.getExam().getId())
-                .examTitle(submission.getExam().getTitle())
-                .totalQuestions(totalQuestions)
-                .totalCorrect(totalCorrect)
-                .correctCount(totalCorrect)
-                .totalIncorrect(totalQuestions - totalCorrect)
-                .score(totalCorrect * 0.25)
-                .startedAt(toVietnamTime(submission.getStartedAt()))
-                .submittedAt(toVietnamTime(submission.getSubmittedAt()))
-                .build();
-    }
-
     private ExamResultResponse toResultResponse(
             Submission submission, List<SubmissionAnswer> answers, ResultContent content) {
         UUID examId = submission.getExam().getId();
@@ -602,7 +542,7 @@ public class SubmissionService {
     public ExamResultResponse gradeGuest(ExamSnapshot exam, List<UUID> partOrder,
             LocalDateTime startedAt, LocalDateTime submittedAt, SubmitExamRequest request,
             List<ExamResultResponse.PartTimeLogDto> logs, UUID sampleVideoId) {
-        Map<UUID, String> selected = mapAnswers(request, exam.questionsById());
+        Map<UUID, String> selected = SubmittedAnswers.parse(request, exam.questionsById());
         List<SubmissionAnswer> answers = exam.questions().stream().map(question -> {
             String value = selected.get(question.id());
             return new SubmissionAnswer(question.id(), value,
@@ -625,120 +565,14 @@ public class SubmissionService {
             Submission submission, ExamSnapshot exam, List<SubmissionAnswer> answers,
             ResultContent content, List<ExamResultResponse.PartTimeLogDto> logs,
             UUID sampleVideoId, boolean guest) {
-        List<UUID> order = resolvedPartOrder(submission, exam);
-        Map<UUID, Integer> indexes = PartOrder.indexes(order);
-        List<ExamSnapshot.QuestionSnap> orderedQuestions = new ArrayList<>(exam.questions());
-        orderedQuestions.sort(Comparator
-                .comparing((ExamSnapshot.QuestionSnap question) ->
-                        indexes.getOrDefault(question.partId(), Integer.MAX_VALUE))
-                .thenComparing(ExamSnapshot.QuestionSnap::orderIndex));
-        Map<UUID, Integer> questionNumbers = new HashMap<>();
-        for (int i = 0; i < orderedQuestions.size(); i++) {
-            questionNumbers.put(orderedQuestions.get(i).id(), i + 1);
-        }
-        Map<UUID, SubmissionAnswer> answerByQuestion = new HashMap<>();
-        answers.forEach(a -> answerByQuestion.put(a.questionId(), a));
-        Map<UUID, String> firstQuestionPartTypes = firstQuestionPartTypes(exam.questions());
-        List<ExamResultResponse.QuestionResultDto> resultDetails = orderedQuestions.stream()
-                .map(question -> {
-                    SubmissionAnswer answer = answerByQuestion.getOrDefault(
-                            question.id(), new SubmissionAnswer(question.id(), null, false));
-                    ExamSnapshot.VideoSnap video = question.video();
-                    ExamResultResponse.RelatedVideoDto videoDto = content != ResultContent.HOMEWORK_REVIEW
-                            && (content == ResultContent.REVIEW
-                            || !Boolean.TRUE.equals(answer.isCorrect()))
-                            && video != null && (!guest || video.id().equals(sampleVideoId))
-                            ? ExamResultResponse.RelatedVideoDto.builder()
-                                    .videoId(video.id())
-                                    .videoTitle(video.title())
-                                    .videoUrl(video.url())
-                                    .build()
-                            : null;
-                    return ExamResultResponse.QuestionResultDto.builder()
-                            .questionId(question.id())
-                            .orderIndex(question.orderIndex())
-                            .partDisplayIndex(indexes.get(question.partId()))
-                            .displayNumber(questionNumbers.get(question.id()))
-                            .content(question.content())
-                            .partId(question.partId())
-                            .optA(question.optA())
-                            .optB(question.optB())
-                            .optC(question.optC())
-                            .optD(question.optD())
-                            .selectedOpt(answer.selectedOpt())
-                            .correctOpt(question.correctOpt())
-                            .isCorrect(answer.isCorrect())
-                            .explanation(question.explanation())
-                            .partType(firstQuestionPartTypes.get(question.id()))
-                            .relatedVideo(videoDto)
-                            .build();
-                })
-                .toList();
-        int totalCorrect = Optional.ofNullable(submission.getTotalCorrect()).orElse(0);
-        int totalQuestions = Optional.ofNullable(submission.getTotalQuestions()).orElse(0);
-        return ExamResultResponse.builder()
-                .submissionId(submission.getId())
-                .examId(exam.examId())
-                .examTitle(exam.title())
-                .totalQuestions(totalQuestions)
-                .totalCorrect(totalCorrect)
-                .totalIncorrect(totalQuestions - totalCorrect)
-                .score(totalCorrect * 0.25)
-                .startedAt(toVietnamTime(submission.getStartedAt()))
-                .submittedAt(toVietnamTime(submission.getSubmittedAt()))
-                .partTimeLogs(logs)
-                .partTranslations(partTranslations(exam, indexes))
-                .parts(content != ResultContent.HOMEWORK_REVIEW ? order.stream()
-                        .map(partId -> exam.parts().stream()
-                                .filter(part -> part.id().equals(partId))
-                                .findFirst()
-                                .orElseThrow())
-                        .map(part -> ExamResultResponse.ReviewPartDto.builder()
-                                .partId(part.id())
-                                .partName(part.name())
-                                .partType(part.partType().name())
-                                .orderIndex(part.orderIndex())
-                                .displayIndex(indexes.get(part.id()))
-                                .passageText(part.passageText())
-                                .build())
-                        .toList() : null)
-                .details(resultDetails)
-                .build();
+        return ExamResultAssembler.assemble(submission, resolvedPartOrder(submission, exam), exam,
+                answers, content, logs, sampleVideoId, guest);
     }
 
     private ExamSnapshot ensureSnapshot(Submission submission) {
         UUID examId = submission.getExam().getId();
         return examSnapshotService.find(examId)
                 .orElseThrow(() -> new IllegalStateException("Không tìm thấy đề thi: " + examId));
-    }
-
-    private Map<UUID, String> mapAnswers(
-            SubmitExamRequest request, Map<UUID, ExamSnapshot.QuestionSnap> questionMap) {
-        Map<UUID, String> answers = new HashMap<>();
-        for (SubmitExamRequest.UserAnswerDto answer : Optional.ofNullable(request.getAnswers())
-                .orElseGet(Collections::emptyList)) {
-            if (answer == null || answer.getQuestionId() == null) {
-                throw new IllegalArgumentException("Mỗi đáp án phải có questionId.");
-            }
-            if (!questionMap.containsKey(answer.getQuestionId())) {
-                throw new IllegalArgumentException(
-                        "Câu hỏi " + answer.getQuestionId() + " không thuộc đề thi.");
-            }
-            if (answers.containsKey(answer.getQuestionId())) {
-                throw new IllegalArgumentException("Một câu hỏi chỉ được gửi một đáp án.");
-            }
-            String selectedOpt = answer.getSelectedOpt();
-            if (selectedOpt != null && !selectedOpt.isBlank()) {
-                selectedOpt = selectedOpt.trim().toUpperCase(Locale.ROOT);
-                if (!Set.of("A", "B", "C", "D").contains(selectedOpt)) {
-                    throw new IllegalArgumentException("Đáp án chỉ được là A, B, C hoặc D.");
-                }
-            } else {
-                selectedOpt = null;
-            }
-            answers.put(answer.getQuestionId(), selectedOpt);
-        }
-        return answers;
     }
 
     private void accumulateActivePartTime(Submission submission, LocalDateTime endedAt) {
@@ -764,10 +598,6 @@ public class SubmissionService {
         }
         submission.setActivePart(null);
         submission.setActivePartStartedAt(null);
-    }
-
-    private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(Submission submission) {
-        return partTimeLogs(submission, null);
     }
 
     private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(

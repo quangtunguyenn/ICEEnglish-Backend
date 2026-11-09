@@ -19,7 +19,6 @@ import com.ice.iceenglish.modules.videos.service.VideoService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
@@ -69,7 +68,6 @@ public class GuestService {
         this.clock = clock;
     }
 
-    @Transactional(readOnly = true)
     public List<GuestExam> listExams(ExamType mode) {
         if (mode != ExamType.GENERAL_EXAM && mode != ExamType.MOCK) {
             throw error(HttpStatus.BAD_REQUEST, "mode phải là GENERAL_EXAM hoặc MOCK.");
@@ -102,12 +100,10 @@ public class GuestService {
         return videos.getVocabularies(id);
     }
 
-    @Transactional(readOnly = true)
     public StartExamResponse startExam(UUID id, UUID token) {
         return start(requireSampleExam(id), token);
     }
 
-    @Transactional(readOnly = true)
     public StartExamResponse startHomework(UUID id, UUID token) {
         return start(requireHomework(id), token);
     }
@@ -139,7 +135,6 @@ public class GuestService {
         return startResponse(attempt, exam);
     }
 
-    @Transactional(readOnly = true)
     public ExamResponseDto examDetail(UUID id, UUID token) {
         ExamSnapshot exam = requireSampleExam(id);
         Attempt attempt = requireAttempt(token, id);
@@ -156,7 +151,6 @@ public class GuestService {
         return dto.toBuilder().parts(ordered).build();
     }
 
-    @Transactional(readOnly = true)
     public void track(UUID id, UUID partId, UUID token) {
         ExamSnapshot exam = requireSampleExam(id);
         Attempt attempt = requireAttempt(token, id);
@@ -173,12 +167,10 @@ public class GuestService {
         }
     }
 
-    @Transactional(readOnly = true)
     public ExamResultResponse submitExam(UUID id, UUID token, SubmitExamRequest request) {
         return submit(requireSampleExam(id), token, request);
     }
 
-    @Transactional(readOnly = true)
     public List<ExamResultResponse.PartTimeLogDto> partLogs(UUID id, UUID token) {
         ExamSnapshot exam = requireSampleExam(id);
         Attempt attempt = requireAttempt(token, id);
@@ -188,7 +180,6 @@ public class GuestService {
         }
     }
 
-    @Transactional(readOnly = true)
     public AnswerUrlResponse answerUrl(UUID id, UUID token) {
         requireSampleExam(id);
         Attempt attempt = requireAttempt(token, id);
@@ -204,12 +195,10 @@ public class GuestService {
         }
     }
 
-    @Transactional(readOnly = true)
     public ExamResultResponse submitHomework(UUID id, UUID token, SubmitExamRequest request) {
         return submit(requireHomework(id), token, request);
     }
 
-    @Transactional(readOnly = true)
     public HomeworkAnswersResponse homeworkAnswers(UUID id, UUID token) {
         ExamSnapshot homework = requireHomework(id);
         Attempt attempt = requireAttempt(token, homework.examId());

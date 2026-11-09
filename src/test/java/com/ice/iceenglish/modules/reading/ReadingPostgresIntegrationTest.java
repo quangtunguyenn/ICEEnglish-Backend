@@ -1,6 +1,7 @@
 package com.ice.iceenglish.modules.reading;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ice.iceenglish.core.cache.CacheRegistry;
 import com.ice.iceenglish.modules.reading.ReadingDtos.*;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -45,7 +46,8 @@ class ReadingPostgresIntegrationTest {
         transaction = new TransactionTemplate(new DataSourceTransactionManager(isolated));
         new ResourceDatabasePopulator(new ClassPathResource(
                 "db/migration/V6__Create_reading_library.sql")).execute(isolated);
-        service = new ReadingService(jdbc, new ObjectMapper(), new ReadingImportValidator());
+        service = new ReadingService(jdbc, new ObjectMapper(), new ReadingImportValidator(),
+                new CacheRegistry(120, new DataSourceTransactionManager(isolated)));
     }
 
     @AfterAll

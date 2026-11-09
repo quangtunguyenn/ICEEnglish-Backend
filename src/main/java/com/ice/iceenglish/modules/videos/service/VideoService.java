@@ -5,7 +5,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.multipart.MultipartFile;
 import com.ice.iceenglish.modules.exams.entity.Exam;
-import com.ice.iceenglish.modules.exams.entity.ExamPart;
 import com.ice.iceenglish.modules.exams.entity.Question;
 import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import com.ice.iceenglish.modules.exams.enums.ExamType;

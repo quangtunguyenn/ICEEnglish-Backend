@@ -20,6 +20,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService; // Inject JwtService đã tạo
+    private final LoginProtection loginProtection;
 
     public User createStudent(StudentCreateRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
@@ -37,12 +38,18 @@ public class AuthService {
     }
 
     public String login(LoginRequest request) {
+        loginProtection.assertNotLocked(request.getUsername());
         User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("Tài khoản không tồn tại"));
+                .orElseThrow(() -> {
+                    loginProtection.recordFailure(request.getUsername());
+                    return new RuntimeException("Tài khoản không tồn tại");
+                });
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+        if (!loginProtection.verify(() -> passwordEncoder.matches(request.getPassword(), user.getPasswordHash()))) {
+            loginProtection.recordFailure(request.getUsername());
             throw new RuntimeException("Sai mật khẩu");
         }
+        loginProtection.clearFailures(request.getUsername());
 
         // Sinh JWT Token chứa thông tin username và role của user
         String role = user.getRole() == null ? "" : user.getRole().trim().toUpperCase(Locale.ROOT);

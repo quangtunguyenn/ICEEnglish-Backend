@@ -23,5 +23,5 @@ $env:APP_PID = $AppPid
 if ($Out -and -not [System.IO.Path]::IsPathRooted($Out)) { $Out = Join-Path (Get-Location).Path $Out }
 Push-Location (Join-Path $root 'loadtest')
 try {
-    if ($Out) { node loadtest.mjs $Users $Base | Tee-Object -FilePath $Out } else { node loadtest.mjs $Users $Base }
+    if ($Out) { node loadtest.mjs $Users $Base 2>&1 | Tee-Object -FilePath $Out } else { node loadtest.mjs $Users $Base }
 } finally { Pop-Location }

@@ -223,7 +223,7 @@ Theo dõi: `hikaricp_connections_pending`, p95/p99 theo endpoint, CPU backend/DB
 
 Kết quả đo bằng H2 (số câu SQL, đề 4 câu; **không còn tăng theo số câu**): nộp bài 11, nộp lặp 6, xem lại kết quả 6. Trước khi sửa, số câu SQL tăng tuyến tính theo số câu hỏi (≈130 với đề 100 câu, theo phân tích mã nguồn ở mục 3.1).
 
-Chưa áp dụng (cố ý, để tránh đổi hành vi đang ổn định): phân trang `GET /videos`, `open-in-view=false`, `ddl-auto=validate`, rate limit đăng nhập, thêm instance (Mức 3). Cache đề/video đã được áp dụng ở mục 11.
+Chưa áp dụng (cố ý, để tránh đổi hành vi đang ổn định): phân trang `GET /videos`, `ddl-auto=validate`, thêm instance (Mức 3). `open-in-view=false`, bảo vệ đăng nhập và cache đề/video/bài đọc đã được áp dụng ở mục 11 và 13.
 
 **Lưu ý khi triển khai**
 - Hibernate sẽ tạo index khi khởi động (`ddl-auto=update`). Với bảng lớn, nên chạy `V2__Add_performance_indexes.sql` thủ công ngoài giờ cao điểm.
@@ -278,6 +278,84 @@ Môi trường: máy Windows 8 luồng, 7,7 GB RAM; backend (`-Xmx1g`), PostgreS
 - Ngay sau khi khởi động JVM, nộp bài MOCK chậm hơn (~10 s, ~33 ms CPU/request do biên dịch JIT). Nên "làm nóng" backend trước giờ thi (vài request) nếu có thể.
 
 ### Chạy lại
+
+```powershell
+.\mvnw.cmd -DskipTests package
+.\loadtest\setup.ps1                      # tạo DB iceenglish_loadtest, chạy backend cổng 8081, seed dữ liệu (cả bài đọc)
+.\loadtest\run.ps1 -AppPid <PID in ra>    # tải 1000 học sinh (đổi số lượng bằng -Users), in PASS/FAIL theo ngưỡng p95
+node loadtest\golden.mjs out.json         # chụp response các API chính (gồm bài đọc) để so sánh trước/sau khi sửa code
+node loadtest\golden-compare.mjs a.json b.json   # so sánh hai lần chụp, bỏ qua thứ tự khoá và xáo part ngẫu nhiên
+node loadtest\cache-invalidation.mjs      # kiểm tra cache được xoá khi staff thao tác
+```
+
+Chạy riêng từng nhóm: `$env:ONLY='reading,guest'; node loadtest\loadtest.mjs 1000` (nhóm: `video, exam, mock, general, homework, reading, guest, mixed, throttle`). Chạy trên máy yếu: `$env:SLO_SCALE='2'`.
+
+## 13. Vòng tối ưu thứ hai: refactor, bài đọc, khách, đăng nhập (đã áp dụng)
+
+### 13.1. Điểm nghẽn mới tìm thấy
+
+| Điểm nghẽn | Nguyên nhân | Xử lý |
+|---|---|---|
+| **Bài đọc** (`/reading-blogs/*`) | Chưa cache; mỗi lần chấm 1 câu (`answer`) nạp lại cả bài (JSON đoạn văn) + 1 truy vấn đáp án; mỗi request giữ 1 kết nối DB | `ReadingService` cache bài PUBLISHED (đoạn văn, câu hỏi, từ vựng, bảng đáp án) theo `id`, cache danh sách/chủ đề; `answer` chấm hoàn toàn trong bộ nhớ. Xoá cache sau commit khi publish / archive / đổi quyền khách (chỉ xoá cache bài đọc) |
+| **Chế độ khách** | `GuestService` đánh dấu mọi hàm `@Transactional(readOnly = true)` dù chỉ đọc cache/bộ nhớ → mỗi request giữ 1 kết nối Hikari vô ích | Bỏ `@Transactional`; nạp DB (khi cache trống) do `CacheRegistry` tự mở transaction |
+| **Danh sách đề của học sinh** (`GET /exams`, bản phân trang) | Mỗi request `findAll` toàn bộ đề + chuẩn hoá tiêu đề trong bộ nhớ + đếm số câu | Cache danh mục đề PUBLISHED (theo loại/từ khoá/sắp xếp) và số câu từng đề; chỉ điểm/lượt làm của riêng học sinh còn truy vấn DB |
+| **Giữ kết nối DB suốt request** | `open-in-view` mặc định bật | `spring.jpa.open-in-view=false` (đã kiểm: 57 response golden không đổi) |
+| **Đăng nhập đồng loạt / dò mật khẩu** | BCrypt ngốn CPU và 200 luồng Tomcat | `LoginProtection`: giới hạn số lượt băm song song (= số lõi CPU), chờ tối đa 60 s rồi trả 503; sai mật khẩu 10 lần liên tiếp → tạm khoá tài khoản 5 phút (429). Tomcat 400 luồng, `accept-count` 1000 |
+| **Ghi `sub_details`** | Mỗi INSERT một câu lệnh dù đã bật batch | `reWriteBatchedInserts=true` (driver gộp thành INSERT nhiều dòng) |
+
+Tham số chỉnh bằng `application.properties` / biến môi trường: `app.security.login.*`, `SERVER_TOMCAT_THREADS_MAX`, `SERVER_TOMCAT_ACCEPT_COUNT`, `DB_POOL_MAX_SIZE`.
+
+### 13.2. Refactor (không đổi hành vi)
+
+- `SubmissionService` (790 → ~620 dòng): tách phần dựng kết quả thuần bộ nhớ sang `ExamResultAssembler`, kiểm tra đáp án gửi lên sang `SubmittedAnswers`, enum `ResultContent` thành file riêng; hằng `POINTS_PER_CORRECT_ANSWER` thay cho số `0.25` lặp lại; bỏ hàm không dùng.
+- `ReadingService`: thay truy vấn lặp trong `getBlog` bằng `BLOG_SQL` + `rowMapper`, bỏ cờ `admin/guest` thừa.
+- `CacheRegistry`: thêm `evictAfterCommit(cache…)` (xoá có chọn lọc) và `callReadOnly`.
+- Dọn: xoá thư mục rỗng `src/main/java/.../resources`, file migration rỗng `V4__...sql` (không nơi nào tham chiếu), các import thừa.
+- Kiểm chứng: 61 test đạt (gồm test PostgreSQL bài đọc với cache thật); `golden-compare` giữa bản trước (git HEAD) và bản mới: 57 response, **0 khác biệt**, gồm chuỗi publish/archive/guest-access bài đọc.
+
+### 13.3. Bộ load test mới (`loadtest/loadtest.mjs`)
+
+43 kịch bản, mỗi kịch bản bắn 1000 request cùng lúc, có ngưỡng p95 và mã thoát khác 0 nếu không đạt:
+
+| Nhóm | Kịch bản |
+|---|---|
+| Đăng nhập | 1000 học sinh đăng nhập cùng lúc |
+| Video / từ vựng | titles, toàn bộ video, learning-content, vocabularies, homework |
+| Thi thử MOCK | tải đề, **bắt đầu thi**, ghi giờ theo part (vào / chuyển part), part-logs, **nộp bài 100 câu**, nộp lặp (idempotent), xem lại, điểm, answer-url |
+| Luyện đề | bắt đầu, nộp, điểm gần nhất, lịch sử, xem lại |
+| Bài về nhà | bắt đầu, nộp, xem lại |
+| Bài đọc | topics, danh sách, lọc chủ đề, đọc bài, từ vựng, chấm từng câu, 5000 lượt chấm (5 câu/học sinh) |
+| Khách | 450 khách: video, đề, bắt đầu, tải đề, ghi giờ, nộp, bài về nhà, bài đọc |
+| Hỗn hợp | mỗi học sinh làm cả hành trình (danh sách đề → video → từ vựng → đọc bài → chấm 2 câu → làm và nộp luyện đề → xem điểm) cùng lúc |
+| Chống dò mật khẩu | `ONLY=throttle`: sai mật khẩu nhiều lần → 429, tài khoản khác không bị ảnh hưởng |
+
+### 13.4. Kết quả (p95 ms, 1000 đồng thời, máy 8 luồng dùng chung với PostgreSQL và công cụ tải, lần chạy đầu sau khi khởi động JVM – JIT còn nguội)
+
+| Kịch bản | Bản trước (HEAD) | Sau vòng 2 |
+|---|---|---|
+| Đăng nhập | 24 457 | 28 492 (CPU-bound, xem 13.5) |
+| `GET /exams` | 3 437 | 2 374 |
+| Tải đề MOCK | 2 353 | 1 966 |
+| Bắt đầu thi MOCK | 3 360 | 3 010 |
+| **Nộp bài MOCK 100 câu** | **13 949** (48 ms CPU) | **9 726** (46 ms CPU) |
+| Nộp lặp MOCK | 4 193 | 4 215 |
+| Nộp luyện đề 100 câu | 6 912 | 6 743 |
+| Bài đọc: danh sách / đọc bài | 1 537 / 1 753 | 976 / 966 |
+| Bài đọc: chấm từng câu | 1 052 | 857 |
+| 5000 lượt chấm bài đọc | 5 897 | 3 355 |
+| Khách: đọc bài | 920 | 198 |
+| Hỗn hợp (cả hành trình) | 17 310 | 16 059 |
+
+0 lỗi ở mọi kịch bản, cả hai bản. Các số dao động ±20 % giữa các lần chạy vì cùng máy; cải thiện rõ nhất ở bài đọc, khách và danh sách đề; các tác vụ nặng ghi DB (nộp bài) hầu như bị giới hạn bởi CPU/đĩa của chính máy thử, không phải bởi mã. Cần chạy lại trên máy chủ riêng cho DB để có số liệu thật.
+
+### 13.5. Redis / Kafka / RabbitMQ – kết luận sau khi đo
+
+- **Kafka / RabbitMQ: không dùng.** Nộp bài phải trả kết quả chấm ngay cho học sinh; chấm điểm chỉ vài ms trong bộ nhớ, phần tốn là ghi ~100 dòng và gửi phản hồi ~110 KB. Hàng đợi chỉ thêm độ trễ, thêm điểm hỏng và rủi ro mất bài. Chỉ cân nhắc khi có việc nền thật sự (gửi email, chấm tự luận bằng AI, báo cáo).
+- **Redis: chưa cần với 1 instance.** Mọi cache nội dung dùng Caffeine, đọc không qua mạng. Chuyển sang Redis khi chạy ≥ 2 instance và cần: xoá cache tức thì trên mọi instance (pub/sub), giới hạn đăng nhập / phiên khách dùng chung (hiện `LoginProtection` và phiên khách nằm trong bộ nhớ từng instance), hoặc lưu tạm đáp án đang làm dở.
+- **Việc đáng làm hơn cho 1000 học sinh thật:** (1) Nginx phía trước: nén gzip, `Cache-Control` cho đề/bài đọc, giới hạn tần suất `/auth/login`; (2) PostgreSQL trên máy riêng, `shared_buffers` ≈ 25 % RAM; (3) học sinh đăng nhập trước giờ thi (token 24 giờ) – đăng nhập là tác vụ duy nhất không cache được (~150 ms CPU BCrypt/lượt); (4) JDK 21+ và `SPRING_THREADS_VIRTUAL_ENABLED=true` bỏ giới hạn luồng Tomcat (dự án đang build Java 17); (5) autosave đáp án ở `localStorage` phía frontend; (6) frontend nộp tự động có jitter 0–5 s.
+- Tồn đọng (không sửa vì đổi hợp đồng API): sai mật khẩu / tài khoản không tồn tại trả HTTP 500 thay vì 401 và lộ tài khoản nào tồn tại; `GET /videos` chưa phân trang; `ddl-auto=update` nên chuyển sang Flyway + `validate` khi lên production.
+
+### Chạy lại (bản gốc, mục 12)
 
 ```powershell
 .\mvnw.cmd -DskipTests package

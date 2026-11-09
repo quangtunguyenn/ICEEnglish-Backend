@@ -25,7 +25,6 @@ import com.ice.iceenglish.modules.exams.repository.ExamRepository;
 import com.ice.iceenglish.core.time.ServerTime;
 import com.ice.iceenglish.modules.videos.entity.Video;
 import com.ice.iceenglish.modules.videos.repository.VideoRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -40,6 +39,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -60,6 +60,12 @@ public class ExamService {
 
     private final Cache<UUID, ExamResponseDto> studentExamCache;
     private final Cache<String, List<ExamResponseDto>> publishedListCache;
+    // Danh mục đề PUBLISHED mà học sinh duyệt (dashboard): dùng chung cho mọi học sinh, chỉ phần điểm là theo người.
+    private final Cache<CatalogKey, List<ExamResponseDto>> catalogDtoCache;
+    private final Cache<CatalogKey, List<Exam>> catalogEntityCache;
+    private final Cache<UUID, Long> questionCountCache;
+
+    private record CatalogKey(ExamType examType, ExamStatus status, String keyword, Sort sort) {}
 
     public ExamService(ExamRepository examRepository, ExamPartRepository examPartRepository,
                        VideoRepository videoRepository, ExamImportValidator importValidator,
@@ -75,6 +81,9 @@ public class ExamService {
         this.readOnlyTx.setReadOnly(true);
         this.studentExamCache = cacheRegistry.create(500);
         this.publishedListCache = cacheRegistry.create(8);
+        this.catalogDtoCache = cacheRegistry.create(200);
+        this.catalogEntityCache = cacheRegistry.create(200);
+        this.questionCountCache = cacheRegistry.create(5000);
     }
 
     // =====================================================================
@@ -297,11 +306,17 @@ public class ExamService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
     public List<ExamResponseDto> listExamsLegacy(
             ExamType examType, ExamStatus status, String keyword, Sort sort) {
-        return filterExams(examType, status, keyword, sort)
-                .stream()
+        if (status == ExamStatus.PUBLISHED) {
+            return cacheRegistry.getOrLoad(catalogDtoCache, new CatalogKey(examType, status, keyword, sort),
+                    () -> toLegacyDtos(queryExams(examType, status, keyword, sort)));
+        }
+        return readOnlyTx.execute(tx -> toLegacyDtos(queryExams(examType, status, keyword, sort)));
+    }
+
+    private List<ExamResponseDto> toLegacyDtos(List<Exam> exams) {
+        return exams.stream()
                 .map(exam -> ExamResponseDto.builder()
                         .id(exam.getId())
                         .title(exam.getTitle())
@@ -316,7 +331,7 @@ public class ExamService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
+    /** Trang danh sách đề; chỉ dùng các trường cơ bản của {@link Exam} nên entity trong cache không cần session. */
     public Page<Exam> searchExams(
             ExamType examType, ExamStatus status, String keyword, Pageable pageable) {
         List<Exam> matches = filterExams(examType, status, keyword, pageable.getSort());
@@ -326,6 +341,15 @@ public class ExamService {
     }
 
     private List<Exam> filterExams(
+            ExamType examType, ExamStatus status, String keyword, Sort sort) {
+        if (status == ExamStatus.PUBLISHED) {
+            return cacheRegistry.getOrLoad(catalogEntityCache, new CatalogKey(examType, status, keyword, sort),
+                    () -> queryExams(examType, status, keyword, sort));
+        }
+        return queryExams(examType, status, keyword, sort);
+    }
+
+    private List<Exam> queryExams(
             ExamType examType, ExamStatus status, String keyword, Sort sort) {
         List<Exam> candidates;
         if (examType != null && status != null) {
@@ -360,16 +384,10 @@ public class ExamService {
                 .trim();
     }
 
-    @Transactional(readOnly = true)
     public ExamListPageResponse toExamListPage(
             Page<Exam> exams, Map<UUID, Double> latestScores, Set<UUID> attemptedExamIds) {
         List<UUID> examIds = exams.getContent().stream().map(Exam::getId).toList();
-        Map<UUID, Long> questionCounts = examIds.isEmpty()
-                ? Map.of()
-                : examRepository.findQuestionCountsByExamIds(examIds).stream()
-                        .collect(Collectors.toMap(
-                                ExamRepository.ExamQuestionCount::getExamId,
-                                count -> count.getTotalQuestions() == null ? 0L : count.getTotalQuestions()));
+        Map<UUID, Long> questionCounts = questionCounts(examIds);
 
         return ExamListPageResponse.builder()
                 .items(exams.getContent().stream()
@@ -392,6 +410,31 @@ public class ExamService {
                 .totalElements(exams.getTotalElements())
                 .totalPages(exams.getTotalPages())
                 .build();
+    }
+
+    /** Số câu của đề không đổi sau khi import nên cache theo đề; chỉ truy vấn các đề chưa có trong cache. */
+    private Map<UUID, Long> questionCounts(List<UUID> examIds) {
+        Map<UUID, Long> counts = new HashMap<>();
+        List<UUID> missing = new ArrayList<>();
+        for (UUID id : examIds) {
+            Long cached = questionCountCache.getIfPresent(id);
+            if (cached == null) {
+                missing.add(id);
+            } else {
+                counts.put(id, cached);
+            }
+        }
+        if (!missing.isEmpty()) {
+            Map<UUID, Long> loaded = new HashMap<>();
+            examRepository.findQuestionCountsByExamIds(missing).forEach(count -> loaded.put(count.getExamId(),
+                    count.getTotalQuestions() == null ? 0L : count.getTotalQuestions()));
+            missing.forEach(id -> {
+                long total = loaded.getOrDefault(id, 0L);
+                counts.put(id, total);
+                questionCountCache.put(id, total);
+            });
+        }
+        return counts;
     }
 
     /** Đề đầy đủ đáp án + lời giải cho giáo viên/admin duyệt, ở mọi trạng thái. */

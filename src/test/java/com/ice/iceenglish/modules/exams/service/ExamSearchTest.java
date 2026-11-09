@@ -23,10 +23,11 @@ import static org.mockito.Mockito.*;
 
 class ExamSearchTest {
         private final ExamRepository exams = mock(ExamRepository.class);
+        private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         private final ExamService service = new ExamService(
                         exams, mock(ExamPartRepository.class), mock(VideoRepository.class),
-                        mock(ExamImportValidator.class), new ObjectMapper(), mock(CacheRegistry.class),
-                        mock(PlatformTransactionManager.class));
+                        mock(ExamImportValidator.class), new ObjectMapper(),
+                        new CacheRegistry(120, transactions), transactions);
         private final Sort sort = Sort.by(Sort.Order.desc("createdAt"));
         private List<Exam> candidates;
 
