@@ -37,8 +37,11 @@ import java.util.stream.Collectors;
 
 @Service
 public class GuestService {
-    public record GuestVideo(UUID videoId, String title, boolean accessible) {}
-    public record GuestExam(UUID id, String title, ExamType mode, Integer durationMinutes, int totalQuestions) {}
+    public record GuestVideo(UUID videoId, String title, boolean accessible) {
+    }
+
+    public record GuestExam(UUID id, String title, ExamType mode, Integer durationMinutes, int totalQuestions) {
+    }
 
     private static final Duration SESSION_TTL = Duration.ofHours(24);
     private static final int MAX_SESSIONS = 1000;
@@ -142,12 +145,13 @@ public class GuestService {
         Map<UUID, ExamResponseDto.ExamPartDto> parts = dto.getParts().stream()
                 .collect(Collectors.toMap(ExamResponseDto.ExamPartDto::getId, p -> p));
         Map<UUID, Integer> indexes = PartOrder.indexes(attempt.order);
-        int[] number = {0};
+        int[] number = { 0 };
         List<ExamResponseDto.ExamPartDto> ordered = attempt.order.stream().map(parts::get)
                 .map(part -> part.toBuilder().displayIndex(indexes.get(part.getId()))
                         .questions(part.getQuestions().stream()
                                 .map(q -> q.toBuilder().displayNumber(++number[0]).build()).toList())
-                        .build()).toList();
+                        .build())
+                .toList();
         return dto.toBuilder().parts(ordered).build();
     }
 
@@ -160,7 +164,8 @@ public class GuestService {
             if (!exam.partIds().contains(partId)) {
                 throw error(HttpStatus.BAD_REQUEST, "Part không thuộc đề thi.");
             }
-            if (partId.equals(attempt.activePart)) return;
+            if (partId.equals(attempt.activePart))
+                return;
             accumulate(attempt, now);
             attempt.activePart = partId;
             attempt.partStartedAt = now;
@@ -175,7 +180,8 @@ public class GuestService {
         ExamSnapshot exam = requireSampleExam(id);
         Attempt attempt = requireAttempt(token, id);
         synchronized (attempt) {
-            if (attempt.result != null) return attempt.result.getPartTimeLogs();
+            if (attempt.result != null)
+                return attempt.result.getPartTimeLogs();
             return logs(attempt, exam, LocalDateTime.now(clock), false);
         }
     }
@@ -211,10 +217,12 @@ public class GuestService {
     }
 
     private ExamResultResponse submit(ExamSnapshot exam, UUID token, SubmitExamRequest request) {
-        if (request == null) throw error(HttpStatus.BAD_REQUEST, "Thiếu nội dung bài nộp.");
+        if (request == null)
+            throw error(HttpStatus.BAD_REQUEST, "Thiếu nội dung bài nộp.");
         Attempt attempt = requireAttempt(token, exam.examId());
         synchronized (attempt) {
-            if (attempt.result != null) return attempt.result;
+            if (attempt.result != null)
+                return attempt.result;
             LocalDateTime now = LocalDateTime.now(clock);
             ensureActive(attempt, exam, now, true);
             List<ExamResultResponse.PartTimeLogDto> logs = logs(attempt, exam, now, true);
@@ -233,24 +241,28 @@ public class GuestService {
         Map<UUID, Integer> totals = new HashMap<>(attempt.seconds);
         if (includeActive && attempt.activePart != null) {
             int elapsed = Math.toIntExact(Math.max(0, Duration.between(attempt.partStartedAt, now).getSeconds()));
-            if (elapsed > 0) totals.merge(attempt.activePart, elapsed, Math::addExact);
+            if (elapsed > 0)
+                totals.merge(attempt.activePart, elapsed, Math::addExact);
         }
         Map<UUID, String> names = exam.parts().stream()
                 .collect(Collectors.toMap(ExamSnapshot.PartSnap::id, ExamSnapshot.PartSnap::name));
         return attempt.order.stream().filter(totals::containsKey)
                 .map(id -> ExamResultResponse.PartTimeLogDto.builder().partId(id)
-                        .partName(names.get(id)).timeSpentSeconds(totals.get(id)).build()).toList();
+                        .partName(names.get(id)).timeSpentSeconds(totals.get(id)).build())
+                .toList();
     }
 
     private void accumulate(Attempt attempt, LocalDateTime now) {
         if (attempt.activePart != null) {
             int elapsed = Math.toIntExact(Math.max(0, Duration.between(attempt.partStartedAt, now).getSeconds()));
-            if (elapsed > 0) attempt.seconds.merge(attempt.activePart, elapsed, Math::addExact);
+            if (elapsed > 0)
+                attempt.seconds.merge(attempt.activePart, elapsed, Math::addExact);
         }
     }
 
     private void ensureActive(Attempt attempt, ExamSnapshot exam, LocalDateTime now, boolean submit) {
-        if (attempt.result != null) throw error(HttpStatus.CONFLICT, "Lượt làm đã được nộp.");
+        if (attempt.result != null)
+            throw error(HttpStatus.CONFLICT, "Lượt làm đã được nộp.");
         if (exam.examType() == ExamType.MOCK && !now.isBefore(
                 attempt.startedAt.plusMinutes(exam.durationMinutes()).plusSeconds(submit ? graceSeconds : 0))) {
             throw error(HttpStatus.CONFLICT, "Lượt thi đã hết thời gian.");
@@ -266,18 +278,21 @@ public class GuestService {
                 .mode(exam.examType().name()).totalQuestions(exam.totalQuestions())
                 .timeLimitMinutes(limit).serverNow(OffsetDateTime.now(clock))
                 .startedAt(attempt.startedAt.atZone(clock.getZone()).toOffsetDateTime())
-                .expiresAt(limit == null ? null : attempt.startedAt.plusMinutes(limit)
-                        .atZone(clock.getZone()).toOffsetDateTime())
+                .expiresAt(limit == null ? null
+                        : attempt.startedAt.plusMinutes(limit)
+                                .atZone(clock.getZone()).toOffsetDateTime())
                 .partOrder(attempt.order).parts(attempt.order.stream().map(parts::get)
                         .map(p -> StartExamResponse.PartTimeDto.builder().partId(p.id())
                                 .partName(p.name()).orderIndex(p.orderIndex())
                                 .displayIndex(indexes.get(p.id()))
                                 .recommendedTimeSeconds(p.partType().getStandardTimeSeconds()).build())
-                        .toList()).build();
+                        .toList())
+                .build();
     }
 
     private ExamSnapshot requireSampleExam(UUID id) {
-        if (!examIds.contains(id)) throw error(HttpStatus.NOT_FOUND, "Không tìm thấy đề mẫu.");
+        if (!examIds.contains(id))
+            throw error(HttpStatus.NOT_FOUND, "Không tìm thấy đề mẫu.");
         ExamSnapshot exam = requirePublished(id);
         if (exam.examType() != ExamType.GENERAL_EXAM && exam.examType() != ExamType.MOCK) {
             throw error(HttpStatus.NOT_FOUND, "Không tìm thấy đề mẫu.");
@@ -301,7 +316,8 @@ public class GuestService {
     }
 
     private void requireVideo(UUID id) {
-        if (!id.equals(videoId)) throw error(HttpStatus.NOT_FOUND, "Không tìm thấy video mẫu.");
+        if (!id.equals(videoId))
+            throw error(HttpStatus.NOT_FOUND, "Không tìm thấy video mẫu.");
     }
 
     private Attempt requireAttempt(UUID token, UUID examId) {
@@ -310,7 +326,8 @@ public class GuestService {
             throw error(HttpStatus.NOT_FOUND, "Phiên khách không tồn tại hoặc đã hết hạn.");
         }
         if (!LocalDateTime.now(clock).isBefore(attempt.startedAt.plus(SESSION_TTL))) {
-            if (attempt != null) attempts.remove(token, attempt);
+            if (attempt != null)
+                attempts.remove(token, attempt);
             throw error(HttpStatus.NOT_FOUND, "Phiên khách không tồn tại hoặc đã hết hạn.");
         }
         return attempt;
@@ -338,7 +355,8 @@ public class GuestService {
             this.examId = exam.examId();
             this.startedAt = startedAt;
             this.order = exam.shuffleParts() && exam.examType() != ExamType.HOMEWORK
-                    ? PartOrder.shuffled(exam) : new ArrayList<>(exam.parts().stream()
+                    ? PartOrder.shuffled(exam)
+                    : new ArrayList<>(exam.parts().stream()
                             .map(ExamSnapshot.PartSnap::id).toList());
         }
     }
