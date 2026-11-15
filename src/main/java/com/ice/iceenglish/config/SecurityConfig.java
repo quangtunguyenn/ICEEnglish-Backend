@@ -43,6 +43,7 @@ public class SecurityConfig {
                 // Nếu /error bị chặn thì mọi lỗi thật đều bị hiển thị thành 403.
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/api/v1/auth/login").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/consultation-requests").permitAll()
                 .requestMatchers("/api/v1/guest/**").permitAll()
                 .requestMatchers(
                     "/v3/api-docs/**",

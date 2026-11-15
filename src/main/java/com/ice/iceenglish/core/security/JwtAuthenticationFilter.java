@@ -76,7 +76,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     .orElse(null);
 
             if (role == null) {
-                log.warn("Không tìm thấy user '{}' hoặc role không hợp lệ (cần STUDENT/TEACHER/ADMIN)", username);
+                log.warn("User '{}' không tồn tại, không hoạt động hoặc có role không hợp lệ", username);
                 filterChain.doFilter(request, response);
                 return;
             }

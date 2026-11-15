@@ -54,10 +54,17 @@ Response `200 OK`:
   "id": "uuid",
   "username": "admin",
   "fullName": "Admin",
+  "studentIrn": null,
+  "passwordMock": null,
+  "dob": null,
+  "gender": null,
+  "isActive": true,
   "role": "ADMIN",
   "authorities": ["ROLE_ADMIN", "ADMIN"]
 }
 ```
+
+Profile học sinh trả thêm `studentIrn`, `passwordMock`, `dob`, `gender`. Các trường này là `null` với tài khoản chưa có dữ liệu.
 
 ## 2. Quản lý tài khoản học sinh
 
@@ -75,13 +82,63 @@ Content-Type: application/json
 {
   "username": "student001",
   "password": "temporary-password",
-  "fullName": "Nguyen Van A"
+  "fullName": "Nguyen Van A",
+  "studentIrn": "IRN-001",
+  "passwordMock": "practice-123",
+  "dob": "06/05/2010",
+  "gender": "FEMALE"
 }
 ```
 
-Response hiện tại là entity `User` với HTTP `200 OK`. **Lưu ý bảo mật:** entity có trường `passwordHash`, vì vậy response hiện có thể bao gồm hash mật khẩu. Frontend tuyệt đối không hiển thị hoặc lưu trường này; backend nên đổi response sang DTO chỉ chứa `id`, `username`, `fullName`, `role`.
+`studentIrn`, `passwordMock`, `dob`, `gender` là tùy chọn, nên request cũ vẫn hợp lệ. `dob` dùng định dạng `dd/MM/yyyy`. `passwordMock` do admin tạo để học sinh tập làm quen thao tác; đây chỉ là dữ liệu hiển thị/thực hành, không dùng để đăng nhập hay xác thực. `gender` là chuỗi và backend hiện không giới hạn danh sách giá trị.
 
-Backend hiện không có API danh sách, sửa, khóa hoặc xóa tài khoản.
+Response hiện tại là entity `User` với HTTP `200 OK`; các trường vừa gửi cũng có trong response. **Lưu ý bảo mật:** entity có trường `passwordHash`, vì vậy response hiện có thể bao gồm hash mật khẩu. Frontend tuyệt đối không hiển thị hoặc lưu trường này.
+
+Sau khi deploy cần áp dụng `src/main/resources/db/migration/V8__Add_student_profile_fields.sql` và `src/main/resources/db/migration/V9__Rename_student_practice_and_dob_fields.sql` nếu môi trường không tự cập nhật schema bằng Hibernate. V9 giữ lại dữ liệu đã lưu ở các cột `sbd_mock`/`bod` trước đó.
+
+### Danh sách, tìm kiếm và trạng thái
+
+Chỉ `ADMIN` được phép. Học sinh mới mặc định `isActive: true`; migration V11 đặt `true` cho tài khoản cũ chưa có trạng thái.
+
+```http
+GET /admin/students
+GET /admin/students?isActive=false
+GET /admin/students?keyword=dang%20thi
+GET /admin/students?isActive=true&keyword=dang%20thi
+Authorization: Bearer <admin-token>
+```
+
+`GET /admin/students` trả mảng JSON (không phân trang), chỉ gồm học sinh; không có kết quả trả `[]`. Hai tham số đều tùy chọn, có thể kết hợp. `isActive` nhận `true` hoặc `false`; `keyword` tìm một phần họ tên, không phân biệt hoa/thường hoặc dấu tiếng Việt, ví dụ `dang thi` tìm được `Đặng Thị Ánh`. Kết quả mới nhất trước theo `createdAt`, sau đó `id` giảm dần.
+
+```json
+[
+  {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "username": "student001",
+    "fullName": "Đặng Thị Ánh",
+    "studentIrn": "IRN-001",
+    "passwordMock": "practice-123",
+    "dob": "06/05/2010",
+    "gender": "FEMALE",
+    "isActive": true,
+    "createdAt": "2026-01-02T10:00:00"
+  }
+]
+```
+
+Danh sách và response cập nhật không chứa `passwordHash`. `createdAt` là thời gian địa phương Việt Nam, có thể `null` nếu dữ liệu cũ không có thời điểm tạo.
+
+```http
+PATCH /admin/students/{id}/is-active
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+```
+
+Gửi `{"isActive": false}` để vô hiệu hóa (xóa mềm), `{"isActive": true}` để kích hoạt lại. Response `200 OK` là object học sinh sau cập nhật, cùng cấu trúc với phần tử danh sách. Không xóa dữ liệu liên quan. `400` nếu thiếu/sai trạng thái hoặc tham số; `404` nếu ID không phải học sinh; `401` nếu chưa xác thực, `403` nếu không phải ADMIN.
+
+Tài khoản không hoạt động không đăng nhập được (`401`) và JWT cũ bị từ chối ngay ở các request được xác thực sau khi thay đổi được commit. Khi kích hoạt lại, JWT cũ chưa hết hạn vẫn có thể sử dụng. Các request đã xác thực trước thời điểm vô hiệu hóa có thể hoàn tất. Mỗi request có JWT cần một truy vấn DB để kiểm tra trạng thái; role vẫn được cache theo cấu hình hiện tại.
+
+**Triển khai:** áp dụng `src/main/resources/db/migration/V11__Add_user_active_status.sql` trước khi deploy backend mới. Migration giữ nguyên trạng thái đã có và đặt `true` cho giá trị chưa có.
 
 ## 3. Quản lý video và nội dung bài học
 

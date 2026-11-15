@@ -8,7 +8,9 @@ import com.ice.iceenglish.modules.users.entity.User;
 import com.ice.iceenglish.modules.users.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Locale;
 import java.util.List;
@@ -31,6 +33,10 @@ public class AuthService {
                 .username(request.getUsername())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName())
+                .studentIrn(request.getStudentIrn())
+                .passwordMock(request.getPasswordMock())
+                .dob(request.getDob())
+                .gender(request.getGender())
                 .role("STUDENT")
                 .build();
 
@@ -49,14 +55,16 @@ public class AuthService {
             loginProtection.recordFailure(request.getUsername());
             throw new RuntimeException("Sai mật khẩu");
         }
-        loginProtection.clearFailures(request.getUsername());
-
-        // Sinh JWT Token chứa thông tin username và role của user
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tài khoản đã bị vô hiệu hóa.");
+        }
         String role = user.getRole() == null ? "" : user.getRole().trim().toUpperCase(Locale.ROOT);
         if (!"STUDENT".equals(role) && !"TEACHER".equals(role) && !"ADMIN".equals(role)) {
             throw new IllegalStateException("Role người dùng không hợp lệ.");
         }
-        return jwtService.generateToken(user.getUsername(), role);
+        String token = jwtService.generateToken(user.getUsername(), role);
+        loginProtection.clearFailures(request.getUsername());
+        return token;
     }
 
     public UserProfileResponse getProfile(String username, List<String> authorities) {
@@ -66,6 +74,11 @@ public class AuthService {
                 .id(user.getId())
                 .username(user.getUsername())
                 .fullName(user.getFullName())
+                .studentIrn(user.getStudentIrn())
+                .passwordMock(user.getPasswordMock())
+                .dob(user.getDob())
+                .gender(user.getGender())
+                .isActive(user.getIsActive())
                 .role(user.getRole())
                 .authorities(authorities)
                 .build();

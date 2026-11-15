@@ -3,6 +3,7 @@ package com.ice.iceenglish.modules.users.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -30,6 +31,22 @@ public class User {
 
     @Column(name = "full_name", length = 150)
     private String fullName;
+
+    @Column(name = "student_irn", length = 50)
+    private String studentIrn;
+
+    @Column(name = "password_mock", length = 100)
+    private String passwordMock;
+
+    @Column(name = "dob")
+    private LocalDate dob;
+
+    @Column(length = 20)
+    private String gender;
+
+    @Builder.Default
+    @Column(name = "is_active", nullable = false)
+    private Boolean isActive = true;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

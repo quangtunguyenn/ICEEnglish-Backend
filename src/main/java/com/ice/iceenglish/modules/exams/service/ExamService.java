@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.ice.iceenglish.core.cache.CacheRegistry;
+import com.ice.iceenglish.core.text.SearchText;
 import com.ice.iceenglish.modules.exams.dto.AnswersRevealedResponse;
 import com.ice.iceenglish.modules.exams.dto.ExamImportDto;
 import com.ice.iceenglish.modules.exams.dto.ExamImportResponseDto;
@@ -37,11 +38,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -362,26 +361,13 @@ public class ExamService {
             candidates = examRepository.findAll(sort);
         }
 
-        String normalizedKeyword = normalizeSearchText(keyword);
+        String normalizedKeyword = SearchText.normalize(keyword);
         if (normalizedKeyword.isEmpty()) {
             return candidates;
         }
         return candidates.stream()
-                .filter(exam -> normalizeSearchText(exam.getTitle()).contains(normalizedKeyword))
+                .filter(exam -> SearchText.normalize(exam.getTitle()).contains(normalizedKeyword))
                 .toList();
-    }
-
-    private String normalizeSearchText(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-        return Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .replace('đ', 'd')
-                .replace('Đ', 'D')
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("\\s+", " ")
-                .trim();
     }
 
     public ExamListPageResponse toExamListPage(
