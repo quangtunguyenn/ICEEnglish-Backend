@@ -18,7 +18,6 @@ import com.ice.iceenglish.modules.exams.entity.Question;
 import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
 import com.ice.iceenglish.modules.exams.enums.PartType;
-import com.ice.iceenglish.modules.exams.exception.ConflictException;
 import com.ice.iceenglish.modules.exams.exception.ExamImportException;
 import com.ice.iceenglish.modules.exams.exception.NotFoundException;
 import com.ice.iceenglish.modules.exams.repository.ExamPartRepository;
@@ -438,9 +437,6 @@ public class ExamService {
     @Transactional
     public void publish(UUID examId) {
         Exam exam = findExam(examId);
-        if (exam.getStatus() == ExamStatus.ARCHIVED) {
-            throw new ConflictException("Đề thi đã được lưu trữ nên không thể xuất bản.");
-        }
         exam.setStatus(ExamStatus.PUBLISHED);
         cacheRegistry.evictAllAfterCommit();
     }
