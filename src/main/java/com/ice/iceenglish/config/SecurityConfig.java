@@ -34,38 +34,37 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .cors(Customizer.withDefaults())
-            .csrf(csrf -> csrf.disable())
-            .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                // Bắt buộc: nếu controller ném exception (500/400/404), Spring forward sang /error.
-                // Nếu /error bị chặn thì mọi lỗi thật đều bị hiển thị thành 403.
-                .requestMatchers("/error").permitAll()
-                .requestMatchers("/api/v1/auth/login").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/v1/consultation-requests").permitAll()
-                .requestMatchers("/api/v1/guest/**").permitAll()
-                .requestMatchers(
-                    "/v3/api-docs/**",
-                    "/swagger-ui/**",
-                    "/swagger-ui.html",
-                    "/swagger-resources/**",
-                    "/webjars/**"
-                ).permitAll()
-                .anyRequest().authenticated()
-            )
-            // Mặc định Spring Security trả 403 cho cả trường hợp "chưa xác thực"
-            // (token sai/hết hạn/không có). Tách ra để dễ debug:
-            //   401 = token có vấn đề, 403 = đã đăng nhập nhưng không đủ quyền.
-            .exceptionHandling(ex -> ex
-                .authenticationEntryPoint((request, response, e) ->
-                    writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED",
-                        "Token thiếu, sai, hết hạn hoặc user/role không hợp lệ"))
-                .accessDeniedHandler((request, response, e) ->
-                    writeError(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN",
-                        "Bạn đã đăng nhập nhưng không đủ quyền truy cập API này"))
-            )
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // Bắt buộc: nếu controller ném exception (500/400/404), Spring forward sang
+                        // /error.
+                        // Nếu /error bị chặn thì mọi lỗi thật đều bị hiển thị thành 403.
+                        .requestMatchers("/error").permitAll()
+                        .requestMatchers("/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/consultation-requests").permitAll()
+                        .requestMatchers("/api/v1/guest/**").permitAll()
+                        .requestMatchers(
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/swagger-resources/**",
+                                "/webjars/**")
+                        .permitAll()
+                        .anyRequest().authenticated())
+                // Mặc định Spring Security trả 403 cho cả trường hợp "chưa xác thực"
+                // (token sai/hết hạn/không có). Tách ra để dễ debug:
+                // 401 = token có vấn đề, 403 = đã đăng nhập nhưng không đủ quyền.
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, e) -> writeError(response,
+                                HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED",
+                                "Token thiếu, sai, hết hạn hoặc user/role không hợp lệ"))
+                        .accessDeniedHandler((request, response, e) -> writeError(response,
+                                HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN",
+                                "Bạn đã đăng nhập nhưng không đủ quyền truy cập API này")))
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -77,9 +76,7 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource(
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.cors.allowed-origins:http://localhost:3000,http://localhost:5173}")
-            String allowedOrigins) {
+            @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:5173}") String allowedOrigins) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
@@ -101,6 +98,6 @@ public class SecurityConfig {
         response.setStatus(status);
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write(
-            "{\"status\":" + status + ",\"error\":\"" + error + "\",\"message\":\"" + message + "\"}");
+                "{\"status\":" + status + ",\"error\":\"" + error + "\",\"message\":\"" + message + "\"}");
     }
 }
