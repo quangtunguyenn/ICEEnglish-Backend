@@ -6,6 +6,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -25,13 +26,16 @@ public class JwtService {
         this.serverClock = serverClock;
     }
 
-    // Chuỗi secret key mã hóa BASE64 (>= 256-bit).
-    // Nên đặt trong application.yml/properties để key không đổi giữa các lần chạy/môi trường.
-    @Value("${application.security.jwt.secret-key:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}")
+    @Value("${application.security.jwt.secret-key}")
     private String secretKey;
 
     @Value("${application.security.jwt.expiration:86400000}") // 24 giờ (ms)
     private long jwtExpiration;
+
+    @PostConstruct
+    void validateSigningKey() {
+        getSignInKey();
+    }
 
     public String generateToken(String username, String role) {
         Map<String, Object> extraClaims = new HashMap<>();

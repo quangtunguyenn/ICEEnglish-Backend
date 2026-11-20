@@ -234,6 +234,16 @@ phép gọi API này.
 
 Ba trường mới trả về `null` nếu không có dữ liệu. Hai endpoint video mẫu của khách cũng trả cùng các trường, nhưng vẫn kiểm tra quyền truy cập video như trước. Với flashcard, frontend hiển thị `word` hoặc `meaning` theo mặt thẻ; cả hai mặt dùng `phonetic` và câu tiếng Anh `exampleSentence`. Bản dịch `exampleSentenceTranslate` dành cho khu vực từ vựng trên trang video.
 
+### 1.8.1 Flashcard yêu thích
+
+Các endpoint sau dành cho học sinh đã đăng nhập:
+
+- `GET /vocabularies/favorites` trả danh sách yêu thích cùng tối đa 40 từ lấy ngẫu nhiên từ `vocabularies` làm đáp án nhiễu cho trắc nghiệm.
+- `POST /vocabularies/favorites` nhận `{"word":"apple","meaning":"quả táo"}`. Từ và nghĩa được lưu tự do theo tài khoản; thêm trùng sẽ trả lại thẻ đã lưu.
+- `DELETE /vocabularies/favorites/{favoriteId}` xóa thẻ của học sinh hiện tại.
+
+Thẻ lật dùng đúng từ và nghĩa do học sinh nhập. Ở chế độ chọn đáp án, ba đáp án nhiễu được lấy ngẫu nhiên từ kho `vocabularies`. Khách chưa đăng nhập được nhắc đăng ký tư vấn khi bấm tạo; thẻ yêu thích không thuộc danh sách bài học ở sidebar.
+
 ### 1.9 Trạng thái hiển thị đáp án
 
 `GET /exams/{examId}/answers-revealed` — mọi tài khoản đã đăng nhập đều gọi được; `404` nếu không có exam. `examId` là `homework.id` (mục 1.6).
@@ -336,11 +346,13 @@ Response (rút gọn):
 }
 ```
 
-`relatedVideo` chỉ có giá trị với câu sai, dạng `{ "videoId", "videoTitle", "video_url" }`.
+`relatedVideo` chứa video đầu tiên để tương thích ngược; `relatedVideos` chứa toàn bộ video liên quan dạng `{ "videoId", "videoTitle", "accessible", "video_url" }[]`. Cả hai chỉ có giá trị với câu sai.
+
+Trong kết quả làm bài của khách, `relatedVideos` vẫn liệt kê đủ tên các video liên quan. `accessible: true` cho phép khách mở video; với `accessible: false`, frontend giữ tên video và yêu cầu đăng nhập khi khách bấm. Kết quả khách không trả `video_url`.
 
 Mẫu response đầy đủ: `samples/result-general-exam-sample.json`, `samples/result-mock-exam-sample.json`.
 
-Với `GET /submissions/practice/{examId}/latest-review`, `relatedVideo` được trả cho mọi câu có
+Với `GET /submissions/practice/{examId}/latest-review`, `relatedVideo` và `relatedVideos` được trả cho mọi câu có
 video liên kết, kể cả câu làm đúng và khi đề chưa công bố đáp án. Nếu chưa công bố đáp án,
 `correctOpt` và `explanation` vẫn là `null`; câu không có video liên kết có `relatedVideo: null`.
 
@@ -350,16 +362,16 @@ Response của API luyện đề còn có `parts` gồm tất cả các phần t
 hiển thị bốn lựa chọn. Các trường này được trả cả khi chưa công bố đáp án.
 
 `GET /submissions/mock/{examId}/review` cũng trả `parts`, `details[].partId`, bốn lựa chọn
-và `relatedVideo` cho mọi câu có video liên kết, bất kể kết quả hay trạng thái công bố đáp án.
+và `relatedVideo`/`relatedVideos` cho mọi câu có video liên kết, bất kể kết quả hay trạng thái công bố đáp án.
 API thi thử vẫn trả `correctOpt` và `explanation` như trước.
 
 `POST /submissions/submit` cũng trả `parts` và `details[].partId`, `optA`, `optB`, `optC`, `optD`
 như trên, cả khi nộp lần đầu hoặc gửi lại bài đã nộp. `POST /submissions/homework/submit`
 cũng trả bốn lựa chọn; homework không có part nên `parts` là `[]` và câu hỏi không có `partId`.
-Các API nộp bài vẫn chỉ trả `relatedVideo` cho câu sai như trước.
+Các API nộp bài vẫn chỉ trả video liên quan cho câu sai như trước.
 
 `GET /submissions/homework/{examId}/latest-review` trả nội dung câu hỏi và bốn lựa chọn
-`optA`, `optB`, `optC`, `optD` trong `details`, nhưng không trả trường `relatedVideo`.
+`optA`, `optB`, `optC`, `optD` trong `details`, nhưng không trả trường video liên quan.
 Điểm số, lựa chọn của học sinh, đáp án đúng và lời giải vẫn được trả như trước.
 
 ### 3.3 Link đáp án sau khi nộp

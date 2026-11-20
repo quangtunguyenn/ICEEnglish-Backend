@@ -10,6 +10,8 @@ import com.ice.iceenglish.modules.users.entity.User;
 import com.ice.iceenglish.modules.users.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -72,6 +74,33 @@ class AuthServiceTest {
         assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> service.login(request));
         verify(loginProtection, never()).clearFailures(anyString());
         verify(jwtService, never()).generateToken(anyString(), anyString());
+    }
+
+    @Test
+    void missingUserAndIncorrectPasswordReturnSameUnauthorizedResponse() {
+        LoginRequest request = new LoginRequest();
+        request.setUsername("student");
+        request.setPassword("wrong");
+        when(userRepository.findByUsername("student")).thenReturn(Optional.empty());
+        ResponseStatusException missing = assertThrows(ResponseStatusException.class, () -> service.login(request));
+
+        when(userRepository.findByUsername("student")).thenReturn(Optional.of(
+                User.builder().username("student").role("STUDENT").build()));
+        when(loginProtection.verify(any(BooleanSupplier.class))).thenReturn(false);
+        ResponseStatusException wrong = assertThrows(ResponseStatusException.class, () -> service.login(request));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, missing.getStatusCode());
+        assertEquals(missing.getStatusCode(), wrong.getStatusCode());
+        assertEquals(missing.getReason(), wrong.getReason());
+        verify(loginProtection, org.mockito.Mockito.times(2)).recordFailure("student");
+    }
+
+    @Test
+    void serializedUserDoesNotExposePasswordHash() throws Exception {
+        User user = User.builder().username("student").passwordHash("encoded").role("STUDENT").build();
+        var json = new ObjectMapper().readTree(new ObjectMapper().writeValueAsString(user));
+        assertEquals("student", json.get("username").asText());
+        assertNull(json.get("passwordHash"));
     }
 
     @Test

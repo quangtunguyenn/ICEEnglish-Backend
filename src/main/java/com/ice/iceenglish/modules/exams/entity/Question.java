@@ -8,6 +8,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -60,9 +62,13 @@ public class Question {
     @Column(columnDefinition = "TEXT")
     private String explanation;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "related_video_id")
-    private Video relatedVideo;
+    @Builder.Default
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "question_related_videos",
+            joinColumns = @JoinColumn(name = "question_id"),
+            inverseJoinColumns = @JoinColumn(name = "video_id"))
+    @OrderColumn(name = "order_index")
+    private List<Video> relatedVideos = new ArrayList<>();
 
     /** Số thứ tự câu trên toàn đề (1, 2, 13, 14, ...). */
     @Column(name = "order_index", nullable = false)

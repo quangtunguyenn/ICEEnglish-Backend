@@ -22,13 +22,13 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
             + "WHERE p.exam.id = :examId OR q.exam.id = :examId ORDER BY q.orderIndex ASC")
     List<Question> findAllByExamId(@Param("examId") UUID examId);
 
-    /** Câu hỏi của đề thường, nạp sẵn part và video liên quan. */
-    @Query("SELECT q FROM Question q JOIN FETCH q.part p LEFT JOIN FETCH q.relatedVideo "
+    /** Câu hỏi của đề thường, nạp sẵn part và các video liên quan. */
+    @Query("SELECT DISTINCT q FROM Question q JOIN FETCH q.part p LEFT JOIN FETCH q.relatedVideos "
             + "WHERE p.exam.id = :examId")
     List<Question> findByPartExamIdWithDetails(@Param("examId") UUID examId);
 
-    /** Câu hỏi nối thẳng vào exam (HOMEWORK), nạp sẵn video liên quan. */
-    @Query("SELECT q FROM Question q LEFT JOIN FETCH q.relatedVideo WHERE q.exam.id = :examId")
+    /** Câu hỏi nối thẳng vào exam (HOMEWORK), nạp sẵn các video liên quan. */
+    @Query("SELECT DISTINCT q FROM Question q LEFT JOIN FETCH q.relatedVideos WHERE q.exam.id = :examId")
     List<Question> findByExamIdWithDetails(@Param("examId") UUID examId);
 
     @Query("select p.exam.id as examId, count(q.id) as totalQuestions "
@@ -39,7 +39,7 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
     long countByExamId(@Param("examId") UUID examId);
 
     @Modifying
-    @Query("update Question q set q.relatedVideo = null where q.relatedVideo.id = :videoId")
+    @Query(value = "DELETE FROM question_related_videos WHERE video_id = :videoId", nativeQuery = true)
     int clearRelatedVideoReference(@Param("videoId") UUID videoId);
 
     /** Như findAllByExamId nhưng tách thành 2 truy vấn đơn giản (dùng được index) và nạp sẵn quan hệ. */

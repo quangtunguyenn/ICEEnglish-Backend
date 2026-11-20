@@ -68,4 +68,5 @@ Các field hiện được serialize theo camelCase như trên. Request tạo h�
 
 ## Lưu ý bảo mật hiện tại
 
-API tạo học sinh hiện trả về entity `User`, có thể chứa `passwordHash` (hash xác thực), như hành vi trước thay đổi. Frontend không được hiển thị hoặc lưu trường này. Không nhầm `passwordHash` với `passwordMock`.
+API tạo học sinh không trả `passwordHash` (hash xác thực). Không nhầm
+`passwordHash` với `passwordMock`, là dữ liệu thực hành được trả theo hợp đồng.

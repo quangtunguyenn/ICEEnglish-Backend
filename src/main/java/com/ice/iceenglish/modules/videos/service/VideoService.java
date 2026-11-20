@@ -209,7 +209,7 @@ public class VideoService {
                     .optD(options.get("D").trim())
                     .correctOpt(correctOpt)
                     .explanation(blankToNull(questionInfo.getExplanation()))
-                    .relatedVideo(video)
+                    .relatedVideos(video == null ? List.of() : List.of(video))
                     .orderIndex(questionInfo.getOrderIndex())
                     .build());
         }

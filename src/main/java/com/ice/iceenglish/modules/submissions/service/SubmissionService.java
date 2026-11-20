@@ -20,6 +20,7 @@ import com.ice.iceenglish.modules.submissions.dto.SubmitExamRequest;
 import com.ice.iceenglish.modules.submissions.entity.SubDetail;
 import com.ice.iceenglish.modules.submissions.entity.Submission;
 import com.ice.iceenglish.modules.submissions.entity.PartTimeLog;
+import com.ice.iceenglish.modules.submissions.exception.SubmissionStateException;
 import com.ice.iceenglish.modules.submissions.repository.SubDetailRepository;
 import com.ice.iceenglish.modules.submissions.repository.PartTimeLogRepository;
 import com.ice.iceenglish.modules.submissions.repository.SubmissionRepository;
@@ -91,7 +92,7 @@ public class SubmissionService {
             if (existingMock.isPresent()) {
                 if (existingMock.get().getSubmittedAt() != null
                         || isExpired(existingMock.get())) {
-                    throw new IllegalStateException("Học sinh chỉ được thi thử đề này một lần.");
+                    throw new SubmissionStateException("Học sinh chỉ được thi thử đề này một lần.");
                 }
                 return toStartExamResponse(existingMock.get(), exam);
             }
@@ -408,15 +409,15 @@ public class SubmissionService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lượt thi."));
         if (!"MOCK".equals(submission.getMode())
                 && !"GENERAL_EXAM".equals(submission.getMode())) {
-            throw new IllegalStateException("Chỉ bài thi thử và luyện đề mới tracking thời gian theo part.");
+            throw new SubmissionStateException("Chỉ bài thi thử và luyện đề mới tracking thời gian theo part.");
         }
         if (submission.getSubmittedAt() != null) {
-            throw new IllegalStateException("Lượt thi này đã được nộp.");
+            throw new SubmissionStateException("Lượt thi này đã được nộp.");
         }
         LocalDateTime now = LocalDateTime.now(serverClock);
         if (submission.getTimeLimitMinutes() != null
                 && !now.isBefore(submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes()))) {
-            throw new IllegalStateException("Lượt thi đã hết thời gian.");
+            throw new SubmissionStateException("Lượt thi đã hết thời gian.");
         }
         if (!ensureSnapshot(submission).partIds().contains(partId)) {
             throw new IllegalArgumentException("Part không thuộc đề thi.");
@@ -465,7 +466,7 @@ public class SubmissionService {
                 && !submittedAt.isBefore(
                 submission.getStartedAt().plusMinutes(submission.getTimeLimitMinutes())
                         .plusSeconds(submitGraceSeconds))) {
-            throw new IllegalStateException("Lượt thi đã hết thời gian.");
+            throw new SubmissionStateException("Lượt thi đã hết thời gian.");
         }
 
         ExamSnapshot exam = examSnapshotService.find(examId)

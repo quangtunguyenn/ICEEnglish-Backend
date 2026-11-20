@@ -80,7 +80,7 @@ class GuestServiceTest {
     }
 
     @Test
-    void gradesInMemoryWithServerTimingAndHidesLockedVideo() {
+    void gradesInMemoryWithServerTimingAndShowsLockedVideoTitle() {
         StartExamResponse start = service.startExam(examId, null);
         UUID token = start.getSubmissionId();
         assertEquals(List.of(partId), start.getPartOrder());
@@ -96,7 +96,9 @@ class GuestServiceTest {
         assertEquals(0.0, result.getScore());
         assertEquals("A", result.getDetails().get(0).getCorrectOpt());
         assertEquals("Explanation", result.getDetails().get(0).getExplanation());
-        assertNull(result.getDetails().get(0).getRelatedVideo());
+        assertEquals("Locked", result.getDetails().get(0).getRelatedVideo().getVideoTitle());
+        assertFalse(result.getDetails().get(0).getRelatedVideo().isAccessible());
+        assertNull(result.getDetails().get(0).getRelatedVideo().getVideoUrl());
         assertEquals(15, result.getPartTimeLogs().get(0).getTimeSpentSeconds());
         assertEquals(240, result.getPartTimeLogs().get(0).getRecommendedTimeSeconds());
         assertEquals(1, result.getPartTimeLogs().get(0).getDisplayIndex());
@@ -106,13 +108,16 @@ class GuestServiceTest {
     }
 
     @Test
-    void guestResultIncludesRelatedVideoWhenItIsGuestAccessible() {
+    void guestResultMarksAccessibleRelatedVideoForNavigation() {
         when(videos.getGuestAccessibleVideoIds()).thenReturn(Set.of(otherVideoId));
         UUID token = service.startExam(examId, null).getSubmissionId();
 
         ExamResultResponse result = service.submitExam(examId, token, request(questionId, "B"));
 
         assertEquals(otherVideoId, result.getDetails().get(0).getRelatedVideo().getVideoId());
+        assertEquals("Locked", result.getDetails().get(0).getRelatedVideo().getVideoTitle());
+        assertTrue(result.getDetails().get(0).getRelatedVideo().isAccessible());
+        assertNull(result.getDetails().get(0).getRelatedVideo().getVideoUrl());
     }
 
     @Test

@@ -53,5 +53,6 @@ public class ExamPreviewResponseDto {
         private String correctOpt;
         private String explanation;
         private UUID relatedVideoId;
+        private List<UUID> relatedVideoIds;
     }
 }

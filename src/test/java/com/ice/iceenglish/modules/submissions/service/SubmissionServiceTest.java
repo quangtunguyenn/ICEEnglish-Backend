@@ -93,13 +93,15 @@ class SubmissionServiceTest {
         submission = Submission.builder()
                 .id(submissionId).exam(exam).user(user).totalQuestions(4).totalCorrect(2).build();
         ExamSnapshot.VideoSnap video = new ExamSnapshot.VideoSnap(videoId, "Video", "https://example.com/video");
+        ExamSnapshot.VideoSnap secondVideo = new ExamSnapshot.VideoSnap(
+                UUID.randomUUID(), "Second video", "https://example.com/video-2");
         snapshot = new ExamSnapshot(examId, "Practice", ExamType.GENERAL_EXAM,
                 ExamStatus.PUBLISHED, null, List.of(
                 new ExamSnapshot.PartSnap(clozePartId, "Cloze", PartType.CLOZE_TEST,
                         "Cloze passage", null, 1, false, null, 240),
                 new ExamSnapshot.PartSnap(grammarPartId, "Grammar", PartType.GRAMMAR, null, null, 2)), List.of(
                 question(correctId, 1, clozePartId, PartType.CLOZE_TEST, video),
-                question(incorrectId, 2, clozePartId, PartType.CLOZE_TEST, video),
+                questionWithVideos(incorrectId, 2, clozePartId, PartType.CLOZE_TEST, List.of(video, secondVideo)),
                 question(unansweredId, 3, grammarPartId, PartType.GRAMMAR, video),
                 question(noVideoId, 4, grammarPartId, PartType.GRAMMAR, null)));
 
@@ -129,6 +131,7 @@ class SubmissionServiceTest {
             assertEquals(videoId, detail.getRelatedVideo().getVideoId());
             assertEquals("Video", detail.getRelatedVideo().getVideoTitle());
             assertEquals("https://example.com/video", detail.getRelatedVideo().getVideoUrl());
+            assertEquals(i == 1 ? 2 : 1, detail.getRelatedVideos().size());
             assertEquals(revealed ? "A" : null, detail.getCorrectOpt());
             assertEquals(revealed ? "Explanation" : null, detail.getExplanation());
         }
@@ -579,6 +582,27 @@ class SubmissionServiceTest {
         assertEquals("Option D", detail.get("optD").asText());
     }
 
+    @Test
+    void guestSubmissionIncludesAllRelatedVideoTitlesWithoutExposingVideoUrls() {
+        SubmitExamRequest request = request();
+        request.setAnswers(List.of(answer(incorrectId, "B")));
+
+        ExamResultResponse result = service.gradeGuest(snapshot, List.of(clozePartId, grammarPartId),
+                LocalDateTime.of(2026, 11, 7, 16, 0), LocalDateTime.of(2026, 11, 7, 16, 30),
+                request, List.of(), Set.of(videoId));
+
+        ExamResultResponse.QuestionResultDto incorrectQuestion = result.getDetails().get(1);
+        assertEquals(2, incorrectQuestion.getRelatedVideos().size());
+        assertEquals(List.of("Video", "Second video"),
+                incorrectQuestion.getRelatedVideos().stream()
+                        .map(ExamResultResponse.RelatedVideoDto::getVideoTitle).toList());
+        assertEquals(List.of(true, false),
+                incorrectQuestion.getRelatedVideos().stream()
+                        .map(ExamResultResponse.RelatedVideoDto::isAccessible).toList());
+        assertTrue(incorrectQuestion.getRelatedVideos().stream()
+                .allMatch(video -> video.getVideoUrl() == null));
+    }
+
     private SubmitExamRequest request() {
         SubmitExamRequest request = new SubmitExamRequest();
         request.setSubmissionId(submissionId);
@@ -638,7 +662,13 @@ class SubmissionServiceTest {
 
     private ExamSnapshot.QuestionSnap question(UUID id, int order, UUID partId,
                                                PartType partType, ExamSnapshot.VideoSnap video) {
+        return questionWithVideos(id, order, partId, partType, video == null ? List.of() : List.of(video));
+    }
+
+    private ExamSnapshot.QuestionSnap questionWithVideos(UUID id, int order, UUID partId,
+                                                        PartType partType, List<ExamSnapshot.VideoSnap> videos) {
         return new ExamSnapshot.QuestionSnap(id, order, "Question", "Option A", "Option B", "Option C",
-                "Option D", "A", "Explanation", partId, partType, video);
+                "Option D", "A", "Explanation", partId, partType,
+                videos.isEmpty() ? null : videos.get(0), videos);
     }
 }

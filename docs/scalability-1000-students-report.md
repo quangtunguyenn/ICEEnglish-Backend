@@ -99,7 +99,7 @@ Mã: `SubmissionService.submitExam`.
 |---|---|---|
 | `sub_details` | `submission_id` | review kết quả (`findBySubmissionId`) |
 | `submissions` | `(user_id, exam_id, mode, started_at DESC)` | bắt đầu thi, điểm, review |
-| `questions` | `exam_id`, `part_id`, `related_video_id` | tải câu hỏi theo đề/part |
+| `questions` | `exam_id`, `part_id`; video liên kết qua `question_related_videos` | tải câu hỏi theo đề/part |
 | `exam_parts` | `exam_id` | tải part của đề |
 | `exams` | `(video_id, exam_type)`, `(status, created_at)` | bài về nhà theo video, danh sách đề |
 | `vocabularies` | `video_id` | từ vựng theo video |

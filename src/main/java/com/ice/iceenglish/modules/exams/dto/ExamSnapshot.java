@@ -36,7 +36,19 @@ public final class ExamSnapshot {
 
     public record QuestionSnap(UUID id, Integer orderIndex, String content,
                                String optA, String optB, String optC, String optD, String correctOpt,
-                               String explanation, UUID partId, PartType partType, VideoSnap video) {}
+                               String explanation, UUID partId, PartType partType, VideoSnap video,
+                               List<VideoSnap> videos) {
+        public QuestionSnap(UUID id, Integer orderIndex, String content,
+                            String optA, String optB, String optC, String optD, String correctOpt,
+                            String explanation, UUID partId, PartType partType, VideoSnap video) {
+            this(id, orderIndex, content, optA, optB, optC, optD, correctOpt, explanation,
+                    partId, partType, video, video == null ? List.of() : List.of(video));
+        }
+
+        public QuestionSnap {
+            videos = List.copyOf(videos);
+        }
+    }
 
     private final UUID examId;
     private final String title;

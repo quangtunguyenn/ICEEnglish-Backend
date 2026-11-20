@@ -41,8 +41,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -132,10 +134,18 @@ public class ExamService {
                     if (question == null) {
                         continue;
                     }
-                    UUID relatedVideoId = question.getRelatedVideoId();
-                    if (relatedVideoId != null && videoRepository.findById(relatedVideoId).isEmpty()) {
+                    if ((question.getRelatedVideoId() != null
+                            && question.getRelatedVideoId().contains(null))
+                            || (question.getRelatedVideoIds() != null
+                            && question.getRelatedVideoIds().contains(null))) {
                         errors.add("parts[" + i + "].questions[" + j
-                                + "].related_video_id: không tìm thấy video.");
+                                + "]." + relatedVideoIdsPath(question) + ": không được chứa null.");
+                    }
+                    for (UUID relatedVideoId : relatedVideoIds(question)) {
+                        if (videoRepository.findById(relatedVideoId).isEmpty()) {
+                            errors.add("parts[" + i + "].questions[" + j + "]."
+                                    + relatedVideoIdsPath(question) + ": không tìm thấy video.");
+                        }
                     }
                 }
             }
@@ -174,8 +184,11 @@ public class ExamService {
 
             for (ExamImportDto.QuestionImport q : p.getQuestions()) {
                 Map<String, String> options = optionsOf(q);
-                Video questionVideo = q.getRelatedVideoId() == null
-                        ? null : videoRepository.findById(q.getRelatedVideoId()).orElse(null);
+                List<Video> questionVideos = relatedVideoIds(q).stream()
+                        .map(videoId -> videoRepository.findById(videoId)
+                                .orElseThrow(() -> new ExamImportException(
+                                        "Không tìm thấy video: " + videoId)))
+                        .toList();
                 part.addQuestion(Question.builder()
                         .orderIndex(q.getOrderIndex())
                         .content(ExamImportValidator.stripQuestionPrefix(q.getContent()))
@@ -185,7 +198,7 @@ public class ExamService {
                         .optD(options.get("D").trim())
                         .correctOpt(q.getCorrectOption().trim())
                         .explanation(blankToNull(q.getExplanation()))
-                        .relatedVideo(questionVideo)
+                        .relatedVideos(questionVideos)
                         .build());
                 totalQuestions++;
             }
@@ -233,6 +246,26 @@ public class ExamService {
                 "B", question.getOptB(),
                 "C", question.getOptC(),
                 "D", question.getOptD());
+    }
+
+    private static List<UUID> relatedVideoIds(ExamImportDto.QuestionImport question) {
+        Set<UUID> ids = new LinkedHashSet<>();
+        if (question.getRelatedVideoId() != null) {
+            question.getRelatedVideoId().stream()
+                    .filter(Objects::nonNull)
+                    .forEach(ids::add);
+        }
+        if (question.getRelatedVideoIds() != null) {
+            question.getRelatedVideoIds().stream()
+                    .filter(Objects::nonNull)
+                    .forEach(ids::add);
+        }
+        return List.copyOf(ids);
+    }
+
+    private static String relatedVideoIdsPath(ExamImportDto.QuestionImport question) {
+        return question.getRelatedVideoIds() == null || question.getRelatedVideoIds().isEmpty()
+                ? "related_video_id" : "related_video_ids";
     }
 
     private ExamImportDto parse(MultipartFile file) {
@@ -584,7 +617,9 @@ public class ExamService {
                                 .optD(q.getOptD())
                                 .correctOpt(q.getCorrectOpt())
                                 .explanation(q.getExplanation())
-                                .relatedVideoId(q.getRelatedVideo() != null ? q.getRelatedVideo().getId() : null)
+                                .relatedVideoId(q.getRelatedVideos().isEmpty()
+                                        ? null : q.getRelatedVideos().get(0).getId())
+                                .relatedVideoIds(q.getRelatedVideos().stream().map(Video::getId).toList())
                                 .build()).toList())
                         .build()).toList())
                 .build();

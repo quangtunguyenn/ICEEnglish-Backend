@@ -59,10 +59,16 @@ public class ExamSnapshotService {
 
     private static ExamSnapshot.QuestionSnap toSnap(Question q) {
         ExamPart part = q.getPart();
-        Video video = q.getRelatedVideo();
+        List<ExamSnapshot.VideoSnap> videos = q.getRelatedVideos().stream()
+                .map(ExamSnapshotService::toVideoSnap)
+                .toList();
         return new ExamSnapshot.QuestionSnap(q.getId(), q.getOrderIndex(), q.getContent(),
                 q.getOptA(), q.getOptB(), q.getOptC(), q.getOptD(), q.getCorrectOpt(),
                 q.getExplanation(), part == null ? null : part.getId(), part == null ? null : part.getPartType(),
-                video == null ? null : new ExamSnapshot.VideoSnap(video.getId(), video.getTitle(), video.getVideoUrl()));
+                videos.isEmpty() ? null : videos.get(0), videos);
+    }
+
+    private static ExamSnapshot.VideoSnap toVideoSnap(Video video) {
+        return new ExamSnapshot.VideoSnap(video.getId(), video.getTitle(), video.getVideoUrl());
     }
 }

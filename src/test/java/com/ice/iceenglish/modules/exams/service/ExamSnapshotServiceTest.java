@@ -10,6 +10,7 @@ import com.ice.iceenglish.modules.exams.enums.ExamType;
 import com.ice.iceenglish.modules.exams.enums.PartType;
 import com.ice.iceenglish.modules.exams.repository.ExamRepository;
 import com.ice.iceenglish.modules.exams.repository.QuestionRepository;
+import com.ice.iceenglish.modules.videos.entity.Video;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -32,11 +33,15 @@ class ExamSnapshotServiceTest {
         UUID partId = UUID.randomUUID();
         ExamPart part = ExamPart.builder().id(partId).partName("Cloze").partType(PartType.CLOZE_TEST)
                 .passageText("Passage").orderIndex(1).build();
+        Video firstVideo = Video.builder().id(UUID.randomUUID()).title("First")
+                .videoUrl("https://example.com/1").build();
+        Video secondVideo = Video.builder().id(UUID.randomUUID()).title("Second")
+                .videoUrl("https://example.com/2").build();
         Exam exam = Exam.builder().id(examId).title("Exam").examType(ExamType.GENERAL_EXAM)
                 .status(ExamStatus.PUBLISHED).parts(List.of(part)).build();
         Question question = Question.builder().id(UUID.randomUUID()).part(part).orderIndex(1)
                 .content("Question").optA("A text").optB("B text").optC("C text").optD("D text")
-                .correctOpt("A").build();
+                .correctOpt("A").relatedVideos(List.of(firstVideo, secondVideo)).build();
         when(exams.findByIdWithParts(examId)).thenReturn(Optional.of(exam));
         when(questions.findAllWithDetailsByExamId(examId)).thenReturn(List.of(question));
 
@@ -49,5 +54,7 @@ class ExamSnapshotServiceTest {
         assertEquals("B text", result.optB());
         assertEquals("C text", result.optC());
         assertEquals("D text", result.optD());
+        assertEquals(List.of(firstVideo.getId(), secondVideo.getId()),
+                result.videos().stream().map(ExamSnapshot.VideoSnap::id).toList());
     }
 }

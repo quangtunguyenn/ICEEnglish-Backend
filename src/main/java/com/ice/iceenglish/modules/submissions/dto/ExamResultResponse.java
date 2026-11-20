@@ -91,6 +91,8 @@ public class ExamResultResponse {
 
         // Review luyện đề và thi thử trả video cho mọi câu có liên kết.
         private RelatedVideoDto relatedVideo;
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private List<RelatedVideoDto> relatedVideos;
     }
 
     @Data
@@ -98,6 +100,7 @@ public class ExamResultResponse {
     public static class RelatedVideoDto {
         private UUID videoId;
         private String videoTitle;
+        private boolean accessible;
         @JsonProperty("video_url")
         private String videoUrl;
     }

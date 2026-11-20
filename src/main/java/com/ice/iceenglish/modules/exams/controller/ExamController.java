@@ -51,7 +51,7 @@ public class ExamController {
     /**
      * Import đề từ file JSON (multipart/form-data).
      * Fields: file (bắt buộc), examType (GENERAL_EXAM | MOCK, bắt buộc).
-     * Video ôn tập của từng câu được lấy từ related_video_id trong JSON.
+     * Video ôn tập của từng câu được lấy từ related_video_ids (hoặc related_video_id cũ) trong JSON.
      * answerRevealed luôn mặc định false.
      *
      * Với MOCK, duration_minutes trong JSON là thời lượng thi bắt buộc.

@@ -43,7 +43,14 @@
         "videoId": "55555555-5555-5555-5555-555555555501",
         "videoTitle": "Thì hiện tại hoàn thành",
         "video_url": "https://www.youtube.com/watch?v=1wXBIzWNnEs"
-      }
+      },
+      "relatedVideos": [
+        {
+          "videoId": "55555555-5555-5555-5555-555555555501",
+          "videoTitle": "Thì hiện tại hoàn thành",
+          "video_url": "https://www.youtube.com/watch?v=1wXBIzWNnEs"
+        }
+      ]
     },
     {
       "questionId": "33333333-3333-3333-3333-333333333303",

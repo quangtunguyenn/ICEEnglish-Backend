@@ -11,6 +11,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -32,12 +33,21 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+            @org.springframework.beans.factory.annotation.Value("${management.server.port:-1}") int managementPort) throws Exception {
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/actuator", "/actuator/**").access((authentication, context) -> {
+                            var request = context.getRequest();
+                            String remote = request.getRemoteAddr();
+                            return new AuthorizationDecision(managementPort > 0
+                                    && request.getLocalPort() == managementPort
+                                    && ("127.0.0.1".equals(remote) || "::1".equals(remote)
+                                            || "0:0:0:0:0:0:0:1".equals(remote)));
+                        })
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Bắt buộc: nếu controller ném exception (500/400/404), Spring forward sang
                         // /error.

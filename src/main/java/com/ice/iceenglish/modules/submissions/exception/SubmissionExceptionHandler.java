@@ -18,4 +18,13 @@ public class SubmissionExceptionHandler {
                 "message", exception.getMessage()
         ));
     }
+
+    @ExceptionHandler(SubmissionStateException.class)
+    public ResponseEntity<Map<String, Object>> handleConflict(SubmissionStateException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "status", HttpStatus.CONFLICT.value(),
+                "error", HttpStatus.CONFLICT.getReasonPhrase(),
+                "message", exception.getMessage()
+        ));
+    }
 }

@@ -259,9 +259,10 @@ function formatVietnamTime(value: string): string {
 | `400` | Invalid request, invalid part ownership, or other `IllegalArgumentException` | Show validation error; do not mark the part as tracked |
 | `401` | Missing/invalid/expired authentication token | Run the login refresh flow |
 | `403` | User is not allowed to perform this operation | Show the permission error |
-| `5xx` | The current submission exception handler does not map `IllegalStateException` to a client status; this currently includes wrong mode, already submitted, and expired attempts | Stop the timer UI, show a generic retry/unavailable message, and do not infer server state from the local clock |
+| `409` | The attempt is expired or already submitted, the student already used their mock attempt, or the requested tracking mode is unsupported | Show the server's message and refresh the attempt state |
+| `5xx` | An unexpected error occurred | Show a generic retry/unavailable message; do not infer server state from the local clock |
 
-The backend currently maps `IllegalArgumentException` to `400`; attempt-not-found also follows this path. Domain errors thrown as `IllegalStateException` are not yet normalized by the submission exception handler. Do not rely on a specific machine-readable error code for those cases.
+The backend maps `IllegalArgumentException` to `400`; attempt-not-found also follows this path. Only known attempt-state conflicts return `409`; unexpected server state errors remain `5xx`. Do not rely on a specific machine-readable error code for those cases.
 
 ## Rollout note
 

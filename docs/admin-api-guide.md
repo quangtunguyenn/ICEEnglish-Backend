@@ -30,6 +30,8 @@ Response `200 OK` là JWT token dạng chuỗi. Gửi token ở các request c�
 Authorization: Bearer <token>
 ```
 
+Tên đăng nhập không tồn tại hoặc mật khẩu sai trả `401` với cùng thông báo.
+
 ### Quyền theo vai trò
 
 | Vai trò | Quyền quản trị |
@@ -92,7 +94,7 @@ Content-Type: application/json
 
 `studentIrn`, `passwordMock`, `dob`, `gender` là tùy chọn, nên request cũ vẫn hợp lệ. `dob` dùng định dạng `dd/MM/yyyy`. `passwordMock` do admin tạo để học sinh tập làm quen thao tác; đây chỉ là dữ liệu hiển thị/thực hành, không dùng để đăng nhập hay xác thực. `gender` là chuỗi và backend hiện không giới hạn danh sách giá trị.
 
-Response hiện tại là entity `User` với HTTP `200 OK`; các trường vừa gửi cũng có trong response. **Lưu ý bảo mật:** entity có trường `passwordHash`, vì vậy response hiện có thể bao gồm hash mật khẩu. Frontend tuyệt đối không hiển thị hoặc lưu trường này.
+Response hiện tại là entity `User` với HTTP `200 OK`; các trường profile được trả trong response, nhưng `passwordHash` không được trả.
 
 Sau khi deploy cần áp dụng `src/main/resources/db/migration/V8__Add_student_profile_fields.sql` và `src/main/resources/db/migration/V9__Rename_student_practice_and_dob_fields.sql` nếu môi trường không tự cập nhật schema bằng Hibernate. V9 giữ lại dữ liệu đã lưu ở các cột `sbd_mock`/`bod` trước đó.
 
@@ -321,7 +323,7 @@ GET /exams/{examId}/preview
 Authorization: Bearer <staff-token>
 ```
 
-Response gồm thông tin đề và `parts[].questions[]`, trong đó mỗi câu có `correctOpt`, `explanation`, và `relatedVideoId`. API này trả cả đáp án; không dùng ở màn hình học sinh.
+Response gồm thông tin đề và `parts[].questions[]`, trong đó mỗi câu có `correctOpt`, `explanation`, `relatedVideoIds` và `relatedVideoId` (video đầu tiên để tương thích). API này trả cả đáp án; không dùng ở màn hình học sinh.
 
 ### Đọc đề không có đáp án
 

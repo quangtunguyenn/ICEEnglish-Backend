@@ -1,0 +1,79 @@
+{
+  "uid": "iceenglish-golden-signals",
+  "title": "IceEnglish - Four Golden Signals",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Traffic - requests / second",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum(rate(http_server_requests_seconds_count{job=\"iceenglish\"}[5m]))"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Latency - p95 / p99",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"iceenglish\"}[5m])))"},
+        {"refId": "B", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"iceenglish\"}[5m])))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Errors - HTTP 4xx / 5xx",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "legendFormat": "4xx", "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"iceenglish\",status=~\"4..\"}[5m])) or vector(0)) / sum(rate(http_server_requests_seconds_count{job=\"iceenglish\"}[5m]))"},
+        {"refId": "B", "legendFormat": "5xx", "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"iceenglish\",status=~\"5..\"}[5m])) or vector(0)) / sum(rate(http_server_requests_seconds_count{job=\"iceenglish\"}[5m]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []}
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Saturation - host CPU",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\"}[5m])))"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []}
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Saturation - host memory",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"node\"} / node_memory_MemTotal_bytes{job=\"node\"})"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []}
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Network - receive / transmit",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "legendFormat": "receive {{device}}", "expr": "rate(node_network_receive_bytes_total{job=\"node\",device!=\"lo\"}[5m])"},
+        {"refId": "B", "legendFormat": "transmit {{device}}", "expr": "rate(node_network_transmit_bytes_total{job=\"node\",device!=\"lo\"}[5m])"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []}
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Saturation - database connection pool",
+      "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "legendFormat": "active", "expr": "sum(hikaricp_connections_active{job=\"iceenglish\"})"},
+        {"refId": "B", "legendFormat": "maximum", "expr": "sum(hikaricp_connections_max{job=\"iceenglish\"})"},
+        {"refId": "C", "legendFormat": "pending", "expr": "sum(hikaricp_connections_pending{job=\"iceenglish\"})"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Application and node scrape health",
+      "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "legendFormat": "{{job}}", "expr": "up{job=~\"iceenglish|node\"}"}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []}
+    }
+  ]
+}

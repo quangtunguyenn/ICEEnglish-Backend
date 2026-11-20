@@ -48,12 +48,12 @@ public class AuthService {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> {
                     loginProtection.recordFailure(request.getUsername());
-                    return new RuntimeException("Tài khoản không tồn tại");
+                    return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tên đăng nhập hoặc mật khẩu không chính xác.");
                 });
 
         if (!loginProtection.verify(() -> passwordEncoder.matches(request.getPassword(), user.getPasswordHash()))) {
             loginProtection.recordFailure(request.getUsername());
-            throw new RuntimeException("Sai mật khẩu");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
         if (!Boolean.TRUE.equals(user.getIsActive())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tài khoản đã bị vô hiệu hóa.");

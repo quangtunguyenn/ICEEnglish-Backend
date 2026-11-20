@@ -69,6 +69,8 @@ final class ExamResultAssembler {
                 .map(question -> {
                     SubmissionAnswer answer = answerByQuestion.getOrDefault(
                             question.id(), new SubmissionAnswer(question.id(), null, false));
+                    List<ExamResultResponse.RelatedVideoDto> relatedVideos =
+                            relatedVideos(question, answer, content, guestAccessibleVideoIds, guest);
                     return ExamResultResponse.QuestionResultDto.builder()
                             .questionId(question.id())
                             .orderIndex(question.orderIndex())
@@ -85,7 +87,8 @@ final class ExamResultAssembler {
                             .isCorrect(answer.isCorrect())
                             .explanation(question.explanation())
                             .partType(firstQuestionPartTypes.get(question.id()))
-                            .relatedVideo(relatedVideo(question, answer, content, guest, guestAccessibleVideoIds))
+                            .relatedVideo(relatedVideos.isEmpty() ? null : relatedVideos.get(0))
+                            .relatedVideos(relatedVideos.isEmpty() ? null : relatedVideos)
                             .build();
                 })
                 .toList();
@@ -109,20 +112,21 @@ final class ExamResultAssembler {
                 .build();
     }
 
-    private static ExamResultResponse.RelatedVideoDto relatedVideo(ExamSnapshot.QuestionSnap question,
-            SubmissionAnswer answer, ResultContent content, boolean guest, Set<UUID> guestAccessibleVideoIds) {
-        ExamSnapshot.VideoSnap video = question.video();
+    private static List<ExamResultResponse.RelatedVideoDto> relatedVideos(ExamSnapshot.QuestionSnap question,
+            SubmissionAnswer answer, ResultContent content, Set<UUID> guestAccessibleVideoIds, boolean guest) {
         boolean visible = content != ResultContent.HOMEWORK_REVIEW
-                && (content == ResultContent.REVIEW || !Boolean.TRUE.equals(answer.isCorrect()))
-                && video != null && (!guest || guestAccessibleVideoIds.contains(video.id()));
+                && (content == ResultContent.REVIEW || !Boolean.TRUE.equals(answer.isCorrect()));
         if (!visible) {
-            return null;
+            return List.of();
         }
-        return ExamResultResponse.RelatedVideoDto.builder()
-                .videoId(video.id())
-                .videoTitle(video.title())
-                .videoUrl(video.url())
-                .build();
+        return question.videos().stream()
+                .map(video -> ExamResultResponse.RelatedVideoDto.builder()
+                        .videoId(video.id())
+                        .videoTitle(video.title())
+                        .accessible(!guest || guestAccessibleVideoIds.contains(video.id()))
+                        .videoUrl(guest ? null : video.url())
+                        .build())
+                .toList();
     }
 
     private static List<ExamResultResponse.ReviewPartDto> reviewParts(
