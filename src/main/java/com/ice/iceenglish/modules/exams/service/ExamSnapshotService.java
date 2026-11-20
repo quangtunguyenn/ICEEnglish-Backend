@@ -47,14 +47,14 @@ public class ExamSnapshotService {
         List<ExamSnapshot.PartSnap> parts = exam.getParts().stream()
                 .map(part -> new ExamSnapshot.PartSnap(part.getId(), part.getPartName(), part.getPartType(),
                         part.getPassageText(), part.getTranslate(), part.getOrderIndex(),
-                        part.isFixedPosition(), part.getShuffleGroup()))
+                        part.isFixedPosition(), part.getShuffleGroup(), part.getRecommendedTimeSeconds()))
                 .toList();
         List<ExamSnapshot.QuestionSnap> questions = questionRepository.findAllWithDetailsByExamId(examId)
                 .stream()
                 .map(ExamSnapshotService::toSnap)
                 .toList();
         return new ExamSnapshot(exam.getId(), exam.getTitle(), exam.getExamType(), exam.getStatus(),
-                exam.getDurationMinutes(), exam.isShuffleParts(), parts, questions);
+                exam.getDurationMinutes(), exam.isShuffleParts(), exam.isGuestAccessible(), parts, questions);
     }
 
     private static ExamSnapshot.QuestionSnap toSnap(Question q) {

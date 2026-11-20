@@ -41,6 +41,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.Map;
@@ -93,7 +95,8 @@ class SubmissionServiceTest {
         ExamSnapshot.VideoSnap video = new ExamSnapshot.VideoSnap(videoId, "Video", "https://example.com/video");
         snapshot = new ExamSnapshot(examId, "Practice", ExamType.GENERAL_EXAM,
                 ExamStatus.PUBLISHED, null, List.of(
-                new ExamSnapshot.PartSnap(clozePartId, "Cloze", PartType.CLOZE_TEST, "Cloze passage", null, 1),
+                new ExamSnapshot.PartSnap(clozePartId, "Cloze", PartType.CLOZE_TEST,
+                        "Cloze passage", null, 1, false, null, 240),
                 new ExamSnapshot.PartSnap(grammarPartId, "Grammar", PartType.GRAMMAR, null, null, 2)), List.of(
                 question(correctId, 1, clozePartId, PartType.CLOZE_TEST, video),
                 question(incorrectId, 2, clozePartId, PartType.CLOZE_TEST, video),
@@ -230,6 +233,164 @@ class SubmissionServiceTest {
         assertEquals(180, logCaptor.getValue().getTimeSpentSeconds());
         assertEquals(grammarPartId, submission.getActivePart().getId());
         assertEquals(LocalDateTime.of(2026, 11, 7, 17, 3), submission.getActivePartStartedAt());
+    }
+
+    @Test
+    void reopeningAPartAddsItsLaterIntervalToTheExistingTotal() {
+        submission.setMode("GENERAL_EXAM");
+        submission.setStartedAt(LocalDateTime.of(2026, 11, 7, 16, 0));
+        org.mockito.Mockito.doReturn(
+                Instant.parse("2026-11-07T10:00:00Z"),
+                Instant.parse("2026-11-07T10:00:10Z"),
+                Instant.parse("2026-11-07T10:00:15Z"),
+                Instant.parse("2026-11-07T10:00:22Z"))
+                .when(serverClock).instant();
+        when(submissionRepository.findByIdAndUserUsernameForUpdate(submissionId, "student"))
+                .thenReturn(Optional.of(submission));
+        when(examPartRepository.getReferenceById(clozePartId))
+                .thenReturn(ExamPart.builder().id(clozePartId).build());
+        when(examPartRepository.getReferenceById(grammarPartId))
+                .thenReturn(ExamPart.builder().id(grammarPartId).build());
+        Map<UUID, PartTimeLog> savedLogs = new HashMap<>();
+        when(partTimeLogRepository.findBySubmissionIdAndPartId(eq(submissionId), any()))
+                .thenAnswer(invocation -> Optional.ofNullable(savedLogs.get(invocation.getArgument(1))));
+        when(partTimeLogRepository.save(any())).thenAnswer(invocation -> {
+            PartTimeLog log = invocation.getArgument(0);
+            savedLogs.put(log.getPart().getId(), log);
+            return log;
+        });
+
+        service.trackPartTime(submissionId, clozePartId, "student");
+        service.trackPartTime(submissionId, grammarPartId, "student");
+        service.trackPartTime(submissionId, clozePartId, "student");
+        service.trackPartTime(submissionId, grammarPartId, "student");
+
+        assertEquals(17, savedLogs.get(clozePartId).getTimeSpentSeconds());
+        assertEquals(5, savedLogs.get(grammarPartId).getTimeSpentSeconds());
+    }
+
+    @Test
+    void aRecordedIntervalBelowOneSecondIsZeroNotNull() {
+        submission.setMode("GENERAL_EXAM");
+        submission.setStartedAt(LocalDateTime.of(2026, 11, 7, 16, 0));
+        org.mockito.Mockito.doReturn(
+                Instant.parse("2026-11-07T10:00:00Z"),
+                Instant.parse("2026-11-07T10:00:00Z"))
+                .when(serverClock).instant();
+        when(submissionRepository.findByIdAndUserUsernameForUpdate(submissionId, "student"))
+                .thenReturn(Optional.of(submission));
+        when(examPartRepository.getReferenceById(clozePartId))
+                .thenReturn(ExamPart.builder().id(clozePartId).build());
+        when(examPartRepository.getReferenceById(grammarPartId))
+                .thenReturn(ExamPart.builder().id(grammarPartId).build());
+
+        service.trackPartTime(submissionId, clozePartId, "student");
+        service.trackPartTime(submissionId, grammarPartId, "student");
+
+        ArgumentCaptor<PartTimeLog> logCaptor = ArgumentCaptor.forClass(PartTimeLog.class);
+        verify(partTimeLogRepository).save(logCaptor.capture());
+        assertEquals(0, logCaptor.getValue().getTimeSpentSeconds());
+    }
+
+    @Test
+    void startSnapshotsRecommendationsAndCreatesNullLogsForUnvisitedParts() {
+        User user = submission.getUser();
+        when(userRepository.findByUsernameForUpdate("student")).thenReturn(Optional.of(user));
+        when(submissionRepository.findFirstByUserUsernameAndExamIdAndSubmittedAtIsNullOrderByStartedAtDesc(
+                "student", examId)).thenReturn(Optional.empty());
+        when(examRepository.getReferenceById(examId)).thenReturn(exam);
+        when(submissionRepository.save(any())).thenAnswer(invocation -> {
+            Submission saved = invocation.getArgument(0);
+            saved.setId(submissionId);
+            return saved;
+        });
+        when(examPartRepository.getReferenceById(clozePartId))
+                .thenReturn(ExamPart.builder().id(clozePartId).build());
+        when(examPartRepository.getReferenceById(grammarPartId))
+                .thenReturn(ExamPart.builder().id(grammarPartId).build());
+        List<PartTimeLog> savedLogs = new ArrayList<>();
+        when(partTimeLogRepository.saveAll(anyList())).thenAnswer(invocation -> {
+            savedLogs.addAll(invocation.getArgument(0));
+            return savedLogs;
+        });
+        when(partTimeLogRepository.findBySubmissionIdWithPart(submissionId)).thenAnswer(
+                invocation -> savedLogs);
+
+        var response = service.startExam(examId, "student");
+
+        assertEquals(240, response.getParts().get(0).getRecommendedTimeSeconds());
+        assertNull(response.getParts().get(1).getRecommendedTimeSeconds());
+        assertEquals(2, savedLogs.size());
+        assertEquals(240, savedLogs.get(0).getRecommendedTimeSeconds());
+        assertNull(savedLogs.get(0).getTimeSpentSeconds());
+        assertNull(savedLogs.get(1).getRecommendedTimeSeconds());
+        assertNull(savedLogs.get(1).getTimeSpentSeconds());
+    }
+
+    @Test
+    void partLogsIncludeUnvisitedPartsInTheSavedOrderAndLeaveUnknownValuesNull() {
+        submission.setPartOrder(List.of(grammarPartId, clozePartId));
+        when(submissionRepository.findByIdAndUserUsername(submissionId, "student"))
+                .thenReturn(Optional.of(submission));
+        when(partTimeLogRepository.findBySubmissionIdWithPart(submissionId)).thenReturn(List.of(
+                PartTimeLog.builder().part(ExamPart.builder().id(clozePartId).partName("Cloze").build())
+                        .timeSpentSeconds(280).recommendedTimeSeconds(240).build(),
+                PartTimeLog.builder().part(ExamPart.builder().id(grammarPartId).partName("Grammar").build())
+                        .timeSpentSeconds(null).recommendedTimeSeconds(null).build()));
+
+        List<ExamResultResponse.PartTimeLogDto> logs =
+                service.getPartTimeLogs(submissionId, "student");
+
+        assertEquals(2, logs.size());
+        assertEquals(grammarPartId, logs.get(0).getPartId());
+        assertEquals("Grammar", logs.get(0).getPartName());
+        assertEquals(1, logs.get(0).getDisplayIndex());
+        assertNull(logs.get(0).getTimeSpentSeconds());
+        assertNull(logs.get(0).getRecommendedTimeSeconds());
+        assertEquals(clozePartId, logs.get(1).getPartId());
+        assertEquals(2, logs.get(1).getDisplayIndex());
+        assertEquals(280, logs.get(1).getTimeSpentSeconds());
+        assertEquals(240, logs.get(1).getRecommendedTimeSeconds());
+    }
+
+    @Test
+    void partLogsUseRecommendationCapturedForTheAttempt() {
+        submission.setPartOrder(List.of(clozePartId, grammarPartId));
+        ExamSnapshot changedExam = new ExamSnapshot(examId, "Practice", ExamType.GENERAL_EXAM,
+                ExamStatus.PUBLISHED, null, List.of(
+                new ExamSnapshot.PartSnap(clozePartId, "Cloze", PartType.CLOZE_TEST,
+                        "Cloze passage", null, 1, false, null, 360),
+                new ExamSnapshot.PartSnap(grammarPartId, "Grammar", PartType.GRAMMAR,
+                        null, null, 2)), snapshot.questions());
+        when(examSnapshotService.find(examId)).thenReturn(Optional.of(changedExam));
+        when(submissionRepository.findByIdAndUserUsername(submissionId, "student"))
+                .thenReturn(Optional.of(submission));
+        when(partTimeLogRepository.findBySubmissionIdWithPart(submissionId)).thenReturn(List.of(
+                PartTimeLog.builder().part(ExamPart.builder().id(clozePartId).partName("Cloze").build())
+                        .timeSpentSeconds(280).recommendedTimeSeconds(240).build()));
+
+        List<ExamResultResponse.PartTimeLogDto> logs =
+                service.getPartTimeLogs(submissionId, "student");
+
+        assertEquals(360, changedExam.parts().get(0).recommendedTimeSeconds());
+        assertEquals(240, logs.get(0).getRecommendedTimeSeconds());
+    }
+
+    @Test
+    void partLogsIncludeElapsedTimeForTheCurrentlyActivePart() {
+        submission.setActivePart(ExamPart.builder().id(clozePartId).build());
+        submission.setActivePartStartedAt(LocalDateTime.of(2026, 11, 7, 16, 58));
+        when(submissionRepository.findByIdAndUserUsername(submissionId, "student"))
+                .thenReturn(Optional.of(submission));
+        when(partTimeLogRepository.findBySubmissionIdWithPart(submissionId)).thenReturn(List.of(
+                PartTimeLog.builder().part(ExamPart.builder().id(clozePartId).partName("Cloze").build())
+                        .timeSpentSeconds(100).recommendedTimeSeconds(240).build()));
+
+        List<ExamResultResponse.PartTimeLogDto> logs =
+                service.getPartTimeLogs(submissionId, "student");
+
+        assertEquals(220, logs.get(0).getTimeSpentSeconds());
+        assertEquals(240, logs.get(0).getRecommendedTimeSeconds());
     }
 
     @Test

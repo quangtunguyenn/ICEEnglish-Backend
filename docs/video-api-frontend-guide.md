@@ -1,6 +1,6 @@
 # Hướng dẫn API Video cho Frontend
 
-Base URL: `/api/v1`. Mọi API đều yêu cầu header `Authorization: Bearer <token>` (chỉ `/auth/login` là công khai).
+Base URL: `/api/v1`. Các API học sinh/quản trị yêu cầu header `Authorization: Bearer <token>`; API guest được ghi rõ bên dưới không cần token.
 Tên trường JSON dùng camelCase, ngoại trừ các trường ghi rõ snake_case (`answers_url`, `exam_id`, `video_url`, `part_type`, `passage_text`).
 
 ## Tổng quan luồng
@@ -55,7 +55,10 @@ Mẫu file: `samples/learning-bundle-sample.json`.
 ```
 
 Quy tắc:
-- Bắt buộc: `video.title`, `video.videoUrl`, `homework.title` (hoặc `homework.exam.title`), ít nhất 1 câu hỏi, ít nhất 1 từ vựng.
+- Bắt buộc: `video.title`, `video.videoUrl`. `video.type` nhận `lecture`, `practice`, `exam_tips` (không phân biệt hoa/thường); nếu bỏ trống thì mặc định `lecture` để tương thích các bundle cũ.
+- `video.position` là tùy chọn; nếu bỏ qua sẽ là `null`. Khi có giá trị, dùng dạng `1` hoặc `1.1` (ví dụ `2.10`), phải duy nhất và được so sánh theo từng phần số nguyên.
+- Với `lecture`, bắt buộc có `homework` với ít nhất 1 câu hỏi và ít nhất 1 `vocabularies`.
+- Với `practice` hoặc `exam_tips`, có thể bỏ `homework` và/hoặc `vocabularies`; các phần này vẫn được import nếu có gửi. Khi không có homework, response `homeworkId` là `null`; khi không có từ vựng, `vocabularyCount` là `0`.
 - Câu hỏi có thể dùng `options: {A,B,C,D}` hoặc các trường `optA..optD`. Đáp án đúng: `correctOption` (hoặc `correctOpt`), chỉ nhận `A`/`B`/`C`/`D`.
 - `answers_url` lấy từ `homework.answers_url`; nếu không có thì lấy `video.answers_url`.
 - Homework không có part, câu hỏi nằm trực tiếp trong exam.
@@ -63,6 +66,7 @@ Quy tắc:
 - `phonetic`, `example_sentence` và `example_sentence_translate` là chuỗi tùy chọn hoặc `null`. Chuỗi trắng được lưu thành `null`; chuỗi không rỗng được giữ nguyên. Phiên âm tối đa 250 ký tự Unicode, mỗi câu ví dụ và bản dịch tối đa 5.000 ký tự Unicode.
 - Nếu bản dịch không rỗng thì `example_sentence` cũng phải không rỗng; sai kiểu hoặc vượt giới hạn trả `400`. Bundle cũ không có các trường này vẫn dùng được. Ngoài snake_case, import cũng nhận alias `exampleSentence` và `exampleSentenceTranslate`.
 - Trước khi triển khai backend mới, áp dụng migration `src/main/resources/db/migration/V7__Add_video_vocabulary_details.sql` theo quy trình database của dự án. Các cột mới nullable, dữ liệu cũ không cần import lại; migration không tự chạy bởi Flyway trong cấu hình hiện tại.
+- Áp dụng thêm `src/main/resources/db/migration/V15__Add_video_position.sql` trước khi deploy tính năng sắp xếp; video cũ có `position: null`.
 
 Response:
 ```json
@@ -78,6 +82,7 @@ Response:
   {
     "id": "uuid",
     "title": "CHUYEN DE 1 - THI DONG TU",
+    "position": "1.1",
     "videoUrl": "https://www.youtube.com/watch?v=...",
     "documentUrl": "https://drive.google.com/...",
     "createdAt": "2026-11-05T20:00:00"
@@ -85,19 +90,66 @@ Response:
 ]
 ```
 
-Lưu ý: danh sách này **không** có `answers_url` (URL đáp án thuộc về homework).
+Lưu ý: danh sách này **không** có `answers_url` (URL đáp án thuộc về homework). Danh sách sắp theo `position` dạng số; video chưa có vị trí nằm cuối theo `createdAt` tăng dần.
 
 ### 1.3 Danh sách tên video
 
-`GET /videos/titles` — sắp xếp theo `title`, dùng cho danh sách chọn bài (ví dụ trang luyện tập từ vựng).
+`GET /videos/titles` — dùng cho danh sách chọn bài (ví dụ trang luyện tập từ vựng), cùng thứ tự với API danh sách video.
 
 ```json
 [
-  { "video_id": "uuid", "title": "CHUYEN DE 1 - THI DONG TU" }
+  { "video_id": "uuid", "title": "CHUYEN DE 1 - THI DONG TU", "position": "1.1" }
 ]
 ```
 
 Dùng `video_id` để gọi `GET /videos/{videoId}/vocabularies`.
+
+### 1.3.1 Quyền truy cập guest
+
+Danh sách dành cho khách là `GET /guest/videos` (không cần token), trả tất cả video với `videoId`, `title`, `position`, `accessible`. Frontend hiển thị cả video khóa; chỉ cho khách mở nội dung khi `accessible: true`. Nếu khách gọi trực tiếp API nội dung hoặc homework của video khóa, backend trả `403`; video không tồn tại trả `404`.
+
+Admin bật/tắt quyền truy cập guest cho từng video:
+
+```http
+PUT /admin/videos/{videoId}/guest-access
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+```
+
+```json
+{ "guestAccessible": true }
+```
+
+Gửi `false` để khóa video. Response là `204 No Content`; video mới mặc định không mở cho khách. Thao tác này không thay đổi quyền truy cập của học sinh đã đăng nhập và không làm thay đổi response của `GET /videos/titles`.
+
+### 1.3.2 Cập nhật thứ tự video (Admin/Teacher)
+
+```http
+PUT /admin/videos/{videoId}/position
+Authorization: Bearer <admin-or-teacher-token>
+Content-Type: application/json
+```
+
+```json
+{ "position": "2.3" }
+```
+
+Response là `204 No Content`. Gửi `null` hoặc chuỗi rỗng để bỏ vị trí. Trả `400` kèm `message` nếu sai định dạng, `404` nếu không có video, `409` kèm `message` (và tên video nếu có) nếu trùng vị trí. Teacher có thể đổi vị trí nhưng vẫn không thể bật/tắt quyền guest access.
+
+### 1.3.3 Xóa cứng video (Admin)
+
+Xóa vĩnh viễn video và dữ liệu học tập liên quan: từ vựng, các đề/homework gắn
+với video, lượt làm homework cùng câu trả lời và log thời gian. Các câu hỏi khác
+có liên kết `relatedVideo` tới video này sẽ được giữ lại nhưng gỡ liên kết.
+Thao tác này không thể hoàn tác.
+
+```http
+DELETE /admin/videos/{videoId}
+Authorization: Bearer <admin-token>
+```
+
+Response `204 No Content`; trả `404` nếu không tìm thấy video. Chỉ `ADMIN` được
+phép gọi API này.
 
 ### 1.4 Nội dung bài học (một lần gọi lấy đủ)
 
@@ -210,6 +262,7 @@ Giá trị này cũng xuất hiện ở các response exam dưới tên `answers
 | 401 | Thiếu hoặc hết hạn token |
 | 403 | Không đủ quyền (ví dụ học sinh gọi API tạo bài học) |
 | 404 | Không tìm thấy video hoặc homework |
+| 409 | Vị trí video đã được dùng |
 
 ---
 

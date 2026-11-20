@@ -3,6 +3,7 @@ package com.ice.iceenglish.modules.submissions.repository;
 import com.ice.iceenglish.modules.submissions.dto.SubmissionAnswer;
 import com.ice.iceenglish.modules.submissions.entity.SubDetail;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -15,6 +16,11 @@ public interface SubDetailRepository extends JpaRepository<SubDetail, UUID> {
 
     // Lấy danh sách chi tiết đáp án đã chọn theo lượt thi (Submission)
     List<SubDetail> findBySubmissionId(UUID submissionId);
+
+    @Modifying
+    @Query("delete from SubDetail d where d.submission.id in "
+            + "(select s.id from Submission s where s.exam.id in :examIds)")
+    int deleteBySubmissionExamIds(@Param("examIds") List<UUID> examIds);
 
     /** Chỉ đọc đáp án đã chọn (không nạp entity câu hỏi); nội dung câu hỏi lấy từ ExamSnapshot. */
     @Query("SELECT new com.ice.iceenglish.modules.submissions.dto.SubmissionAnswer("

@@ -20,11 +20,12 @@ BEGIN
     VALUES (gen_random_uuid(), 'admin', pw, 'ADMIN', 'Admin', now());
 
     FOR i IN 1..50 LOOP
-        -- Video 1 có id cố định để cấu hình chế độ khách (app.guest.video-id).
+        -- Video 1 được bật quyền truy cập guest trong dữ liệu seed.
         vid := CASE i WHEN 1 THEN '11111111-1111-1111-1111-111111111111'::uuid ELSE gen_random_uuid() END;
         vids := vids || vid;
-        INSERT INTO videos (id, title, video_url, document_url, created_at)
-        VALUES (vid, 'Chuyen de ' || i, 'https://youtu.be/x' || i, 'https://drive.google.com/d' || i, now());
+        INSERT INTO videos (id, title, video_url, document_url, guest_accessible, created_at)
+        VALUES (vid, 'Chuyen de ' || i, 'https://youtu.be/x' || i, 'https://drive.google.com/d' || i,
+                i = 1, now());
         INSERT INTO vocabularies (id, video_id, word, meaning, created_at)
         SELECT gen_random_uuid(), vid, 'word' || i || '_' || g, 'nghia ' || g, now() + (g || ' ms')::interval
         FROM generate_series(1, 14) g;

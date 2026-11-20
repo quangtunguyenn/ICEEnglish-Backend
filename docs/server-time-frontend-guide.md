@@ -44,6 +44,7 @@ Response example:
       "partId": "part-uuid",
       "partName": "Part 1",
       "orderIndex": 1,
+      "displayIndex": 1,
       "recommendedTimeSeconds": 600
     }
   ]
@@ -88,6 +89,7 @@ Call once when the student enters a part and each time they switch to a differen
 
 - A repeated call for the already-active part does not reset its timer.
 - When changing parts, the server closes the previous part interval and adds its elapsed seconds to that part's saved log.
+- Elapsed seconds are whole server-clock seconds, summed across all intervals spent in the part. A recorded interval shorter than one second is `0`; `null` means no recorded/recoverable interval.
 - This endpoint supports `MOCK` and `GENERAL_EXAM` submissions. Homework does not support part-time tracking.
 - The attempt must belong to the authenticated student, be in progress, not be expired, and the part must belong to its exam.
 - If this request fails, show/retry the error; do not silently assume that server tracking started. The user can still continue the UI, but the backend will not have a reliable active-part interval until it accepts a call.
@@ -124,19 +126,53 @@ Older clients may still send `partLogs`, but the server ignores their `timeSpent
 GET /api/v1/submissions/{submissionId}/part-logs
 ```
 
-Returns the saved per-part durations:
+Returns all identifiable parts in the attempt's order, including parts without
+recorded time. It is scoped to the authenticated student's submission:
 
 ```json
 [
   {
     "partId": "part-uuid",
     "partName": "Part 1",
-    "timeSpentSeconds": 420
+    "displayIndex": 1,
+    "timeSpentSeconds": 420,
+    "recommendedTimeSeconds": 600
+  },
+  {
+    "partId": "part-2-uuid",
+    "partName": "Part 2",
+    "displayIndex": 2,
+    "timeSpentSeconds": null,
+    "recommendedTimeSeconds": null
   }
 ]
 ```
 
-The active part is only flushed when the student switches to another part or submits. Therefore, while an attempt is in progress, this endpoint does not include the time elapsed in the currently active part yet. After successful submission, the final part interval is included.
+The response fields are:
+
+- `partId` and `partName`: identify the part.
+- `displayIndex`: position in this attempt, including shuffled attempts.
+- `timeSpentSeconds`: summed server-recorded elapsed seconds; `null` if unknown or not recorded.
+- `recommendedTimeSeconds`: the recommendation snapshotted for this attempt; `null` if missing or not recoverable. Editing the exam later does not change the snapshot.
+
+While the attempt is in progress, the active part's returned time includes the
+elapsed interval up to the API request. On submission, the server closes the
+active interval at the server's receipt time. Repeated reads after submission
+return the same final values.
+
+The server cannot detect a hidden/closed tab or a client connection loss. The
+active interval therefore continues through those gaps and is assigned to the
+active part when the next accepted part event or submission arrives. This is
+server elapsed time, not a measure of focused study time. A failed tracking
+request is not inferred or reconstructed.
+
+Older attempts can return `null` for `recommendedTimeSeconds` because no
+per-attempt snapshot exists. Missing times are not replaced with `0`.
+
+The guest endpoint
+`GET /api/v1/guest/exams/{examId}/part-logs` returns the same fields and uses
+`X-Guest-Attempt: <submissionId>`; it validates the attempt against the exam.
+Guest attempts are held in server memory and do not provide durable history.
 
 ### 5. Display the result
 
@@ -150,13 +186,39 @@ Submission and review responses contain `startedAt` and `submittedAt` as ISO-860
     {
       "partId": "part-uuid",
       "partName": "Part 1",
-      "timeSpentSeconds": 420
+      "displayIndex": 1,
+      "timeSpentSeconds": 420,
+      "recommendedTimeSeconds": 600
     }
   ]
 }
 ```
 
 Practice history also returns `submittedAt` with `+07:00`. Use these server-returned values for history and result screens.
+
+Homework currently has no parts and does not support per-part timing; its
+`partTimeLogs` remains empty.
+
+## Show time compared with the recommendation
+
+Use `partId` to match logs to parts and `displayIndex` to order them for this
+attempt. Do not rely on the exam's original part order because parts may be
+shuffled.
+
+When both `timeSpentSeconds` and `recommendedTimeSeconds` are non-null, show
+the actual duration, the recommended duration, and their difference. For
+example, `280` seconds versus `240` seconds can be displayed as:
+
+> 4 min 40 sec / recommended 4 min - 40 sec longer
+
+If actual time is shorter, describe it as "X sec shorter"; if equal, say it
+matches the recommendation. This comparison describes time only: do not infer
+that a student did well, poorly, quickly, or inaccurately from it.
+
+If either value is `null`, do not calculate or display a comparison. A real
+`timeSpentSeconds: 0` is different from `null` and should remain zero. Format
+durations from integer seconds (for example, `280` becomes `4 min 40 sec`); do not
+round them to whole minutes before calculating the difference.
 
 ## Frontend timer suggestion
 
@@ -203,4 +265,8 @@ The backend currently maps `IllegalArgumentException` to `400`; attempt-not-foun
 
 ## Rollout note
 
-Backend stores the active part and server-recorded start time in the submission row. Apply database migration `V5__Add_server_part_timing_to_submissions.sql` before deploying the backend version that uses server-owned part timing. No migration needs to be run by the frontend team.
+Backend stores the active part and server-recorded start time in the submission
+row. Apply `V5__Add_server_part_timing_to_submissions.sql` and
+`V16__Add_part_recommendation_snapshots.sql` before deploying the backend
+version that uses server-owned part timing and recommendation snapshots. These
+are backend database migrations; the frontend team does not need to run them.

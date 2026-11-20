@@ -6,7 +6,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -22,7 +21,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -63,9 +61,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         final String username;
         try {
             username = jwtService.extractUsername(jwt);
-        } catch (JwtException | IllegalArgumentException ex) {
+        } catch (JwtException | IllegalArgumentException ignored) {
             // Hết hạn / sai chữ ký / sai định dạng -> không xác thực, EntryPoint sẽ trả 401
-            log.warn("JWT bị từ chối ({} {}): {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
             filterChain.doFilter(request, response);
             return;
         }
@@ -76,7 +73,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     .orElse(null);
 
             if (role == null) {
-                log.warn("User '{}' không tồn tại, không hoạt động hoặc có role không hợp lệ", username);
                 filterChain.doFilter(request, response);
                 return;
             }

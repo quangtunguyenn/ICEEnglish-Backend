@@ -11,6 +11,7 @@ import com.ice.iceenglish.modules.exams.enums.ExamType;
 import com.ice.iceenglish.modules.exams.enums.PartType;
 import com.ice.iceenglish.modules.exams.repository.ExamPartRepository;
 import com.ice.iceenglish.modules.exams.repository.ExamRepository;
+import com.ice.iceenglish.modules.exams.repository.QuestionRepository;
 import com.ice.iceenglish.modules.exams.dto.ExamResponseDto;
 import com.ice.iceenglish.modules.learning.dto.VocabularyResponseDto;
 import com.ice.iceenglish.modules.learning.dto.CreateVideoLearningBundleRequest;
@@ -19,32 +20,50 @@ import com.ice.iceenglish.modules.learning.entity.Vocabulary;
 import com.ice.iceenglish.modules.learning.repository.VocabularyRepository;
 import com.ice.iceenglish.modules.videos.dto.HomeworkAnswersResponse;
 import com.ice.iceenglish.modules.videos.dto.VideoDocumentResponse;
+import com.ice.iceenglish.modules.videos.dto.VideoGuestTitleResponse;
 import com.ice.iceenglish.modules.videos.dto.VideoLearningContentResponse;
 import com.ice.iceenglish.modules.videos.dto.VideoResponseDto;
 import com.ice.iceenglish.modules.videos.dto.VideoTitleResponse;
 import com.ice.iceenglish.modules.videos.entity.Video;
+import com.ice.iceenglish.modules.videos.enums.VideoType;
+import com.ice.iceenglish.modules.videos.exception.VideoPositionException;
 import com.ice.iceenglish.modules.videos.repository.VideoRepository;
+import com.ice.iceenglish.modules.submissions.repository.PartTimeLogRepository;
+import com.ice.iceenglish.modules.submissions.repository.SubDetailRepository;
+import com.ice.iceenglish.modules.submissions.repository.SubmissionRepository;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.ice.iceenglish.core.cache.CacheRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
 @Service
 public class VideoService {
 
+    private static final Pattern POSITION_PATTERN = Pattern.compile("^[0-9]+(?:\\.[0-9]+)?$");
+    private static final String INVALID_POSITION_MESSAGE =
+            "Vị trí không hợp lệ. Ví dụ: 1, 1.1, 2.10.";
+
     private final VideoRepository videoRepository;
     private final ExamRepository examRepository;
     private final ExamPartRepository examPartRepository;
+    private final QuestionRepository questionRepository;
     private final VocabularyRepository vocabularyRepository;
+    private final SubmissionRepository submissionRepository;
+    private final SubDetailRepository subDetailRepository;
+    private final PartTimeLogRepository partTimeLogRepository;
     private final ObjectMapper objectMapper;
     private final CacheRegistry cacheRegistry;
 
@@ -56,14 +75,21 @@ public class VideoService {
     private final Cache<UUID, List<VocabularyResponseDto>> vocabulariesCache;
     private final Cache<String, List<VideoResponseDto>> videoListCache;
     private final Cache<String, List<VideoTitleResponse>> videoTitlesCache;
+    private final Cache<String, List<VideoGuestTitleResponse>> guestVideoTitlesCache;
 
     public VideoService(VideoRepository videoRepository, ExamRepository examRepository,
-                        ExamPartRepository examPartRepository, VocabularyRepository vocabularyRepository,
+                        ExamPartRepository examPartRepository, QuestionRepository questionRepository,
+                        VocabularyRepository vocabularyRepository, SubmissionRepository submissionRepository,
+                        SubDetailRepository subDetailRepository, PartTimeLogRepository partTimeLogRepository,
                         ObjectMapper objectMapper, CacheRegistry cacheRegistry) {
         this.videoRepository = videoRepository;
         this.examRepository = examRepository;
         this.examPartRepository = examPartRepository;
+        this.questionRepository = questionRepository;
         this.vocabularyRepository = vocabularyRepository;
+        this.submissionRepository = submissionRepository;
+        this.subDetailRepository = subDetailRepository;
+        this.partTimeLogRepository = partTimeLogRepository;
         this.objectMapper = objectMapper;
         this.cacheRegistry = cacheRegistry;
         this.learningContentCache = cacheRegistry.create(1_000);
@@ -73,6 +99,7 @@ public class VideoService {
         this.vocabulariesCache = cacheRegistry.create(1_000);
         this.videoListCache = cacheRegistry.create(4);
         this.videoTitlesCache = cacheRegistry.create(4);
+        this.guestVideoTitlesCache = cacheRegistry.create(4);
     }
 
     @Transactional
@@ -98,18 +125,27 @@ public class VideoService {
     @Transactional
     public CreateVideoLearningBundleResponse createLearningBundle(
             CreateVideoLearningBundleRequest request, String createdBy) {
-        validateRequest(request);
+        VideoType videoType = validateRequest(request);
 
         CreateVideoLearningBundleRequest.VideoInfo videoInfo = request.getVideo();
+        ParsedPosition position = parsePosition(videoInfo.getPosition());
+        ensurePositionAvailable(position, null);
         Video video = videoRepository.save(Video.builder()
                 .title(videoInfo.getTitle().trim())
+                .videoType(videoType)
+                .position(position.value())
+                .positionChapter(position.chapter())
+                .positionLesson(position.lesson())
                 .videoUrl(videoInfo.getVideoUrl().trim())
                 .documentUrl(blankToNull(videoInfo.getDocumentUrl()))
                 .build());
+        flushPositionOrConflict(position.value());
 
-        Exam homework = toHomework(
-                request.getHomework(), video, createdBy, videoInfo.getAnswersUrl());
-        List<Vocabulary> vocabularies = request.getVocabularies().stream()
+        Exam savedHomework = request.getHomework() == null ? null : examRepository.save(toHomework(
+                request.getHomework(), video, createdBy, videoInfo.getAnswersUrl()));
+        List<CreateVideoLearningBundleRequest.VocabularyInfo> vocabularyItems =
+                request.getVocabularies() == null ? List.of() : request.getVocabularies();
+        List<Vocabulary> vocabularies = vocabularyItems.stream()
                 .map(item -> Vocabulary.builder()
                         .video(video)
                         .word(item.getWord().trim())
@@ -120,13 +156,14 @@ public class VideoService {
                         .build())
                 .toList();
 
-        Exam savedHomework = examRepository.save(homework);
-        vocabularyRepository.saveAll(vocabularies);
+        if (!vocabularies.isEmpty()) {
+            vocabularyRepository.saveAll(vocabularies);
+        }
         cacheRegistry.evictAllAfterCommit();
 
         return CreateVideoLearningBundleResponse.builder()
                 .videoId(video.getId())
-                .homeworkId(savedHomework.getId())
+                .homeworkId(savedHomework == null ? null : savedHomework.getId())
                 .vocabularyCount(vocabularies.size())
                 .build();
     }
@@ -179,7 +216,7 @@ public class VideoService {
         return homework;
     }
 
-    private void validateRequest(CreateVideoLearningBundleRequest request) {
+    private VideoType validateRequest(CreateVideoLearningBundleRequest request) {
         if (request == null || request.getVideo() == null) {
             throw validation("video: bắt buộc.");
         }
@@ -187,12 +224,16 @@ public class VideoService {
         if (isBlank(video.getTitle()) || isBlank(video.getVideoUrl())) {
             throw validation("video.title và video.videoUrl: bắt buộc.");
         }
-        if (request.getHomework() == null || request.getVocabularies() == null
-                || request.getVocabularies().isEmpty()) {
-            throw validation("homework và vocabularies (ít nhất 1 phần tử): bắt buộc.");
+        parsePosition(video.getPosition());
+        VideoType videoType = parseVideoType(video.getType());
+        List<CreateVideoLearningBundleRequest.VocabularyInfo> vocabularies =
+                request.getVocabularies() == null ? List.of() : request.getVocabularies();
+        if (videoType == VideoType.LECTURE
+                && (request.getHomework() == null || vocabularies.isEmpty())) {
+            throw validation("video.type=lecture yêu cầu homework và ít nhất 1 từ vựng.");
         }
-        for (int i = 0; i < request.getVocabularies().size(); i++) {
-            CreateVideoLearningBundleRequest.VocabularyInfo item = request.getVocabularies().get(i);
+        for (int i = 0; i < vocabularies.size(); i++) {
+            CreateVideoLearningBundleRequest.VocabularyInfo item = vocabularies.get(i);
             if (item == null || isBlank(item.getWord()) || isBlank(item.getMeaning())) {
                 throw validation("vocabularies: word và meaning là bắt buộc.");
             }
@@ -203,6 +244,18 @@ public class VideoService {
             if (!isBlank(item.getExampleSentenceTranslate()) && isBlank(item.getExampleSentence())) {
                 throw validation(path + "example_sentence_translate yêu cầu example_sentence.");
             }
+        }
+        return videoType;
+    }
+
+    private VideoType parseVideoType(String type) {
+        if (type == null) {
+            return VideoType.LECTURE;
+        }
+        try {
+            return VideoType.valueOf(type.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw validation("video.type: chỉ nhận lecture, practice hoặc exam_tips.");
         }
     }
 
@@ -285,6 +338,122 @@ public class VideoService {
         return cacheRegistry.getOrLoad(vocabulariesCache, videoId, () -> loadVocabularies(videoId));
     }
 
+    public List<VideoGuestTitleResponse> getAllGuestTitles() {
+        return cacheRegistry.getOrLoad(guestVideoTitlesCache, "ALL", () ->
+                videoRepository.findAllInDisplayOrder().stream()
+                        .map(video -> new VideoGuestTitleResponse(
+                                video.getId(), video.getTitle(), video.getPosition(),
+                                video.isGuestAccessible()))
+                        .toList());
+    }
+
+    public void requireGuestAccess(UUID videoId) {
+        Video video = findVideo(videoId);
+        if (!video.isGuestAccessible()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Video này dành cho học viên ICE English.");
+        }
+    }
+
+    public Set<UUID> getGuestAccessibleVideoIds() {
+        return Set.copyOf(videoRepository.findGuestAccessibleIds());
+    }
+
+    @Transactional
+    public void guestAccess(UUID videoId, Boolean guestAccessible) {
+        if (guestAccessible == null) {
+            throw validation("guestAccessible là bắt buộc.");
+        }
+        findVideo(videoId).setGuestAccessible(guestAccessible);
+        cacheRegistry.evictAllAfterCommit();
+    }
+
+    @Transactional
+    public void updatePosition(UUID videoId, String requestedPosition) {
+        Video video = videoRepository.findById(videoId)
+                .orElseThrow(() -> new VideoPositionException(HttpStatus.NOT_FOUND,
+                        "Không tìm thấy video: " + videoId));
+        ParsedPosition position = parsePosition(requestedPosition);
+        ensurePositionAvailable(position, videoId);
+        video.setPosition(position.value());
+        video.setPositionChapter(position.chapter());
+        video.setPositionLesson(position.lesson());
+        flushPositionOrConflict(position.value());
+        cacheRegistry.evictAllAfterCommit();
+    }
+
+    @Transactional
+    public void delete(UUID videoId) {
+        Video video = findVideo(videoId);
+        List<Exam> linkedExams = examRepository.findByVideoIdWithParts(videoId);
+        List<UUID> linkedExamIds = linkedExams.stream().map(Exam::getId).toList();
+
+        if (!linkedExamIds.isEmpty()) {
+            subDetailRepository.deleteBySubmissionExamIds(linkedExamIds);
+            partTimeLogRepository.deleteBySubmissionExamIds(linkedExamIds);
+            submissionRepository.deleteByExamIds(linkedExamIds);
+        }
+
+        questionRepository.clearRelatedVideoReference(videoId);
+        vocabularyRepository.deleteByVideoId(videoId);
+        examRepository.clearVideoReference(videoId);
+        examRepository.deleteAll(linkedExams);
+        videoRepository.delete(video);
+        cacheRegistry.evictAllAfterCommit();
+    }
+
+    private void flushPositionOrConflict(String position) {
+        if (position == null) {
+            return;
+        }
+        try {
+            videoRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw positionConflict(position, null, exception);
+        }
+    }
+
+    private void ensurePositionAvailable(ParsedPosition position, UUID currentVideoId) {
+        if (position.value() == null) {
+            return;
+        }
+        videoRepository.findByPosition(position.value()).ifPresent(existing -> {
+            if (currentVideoId == null || !currentVideoId.equals(existing.getId())) {
+                throw positionConflict(position.value(), existing.getTitle(), null);
+            }
+        });
+    }
+
+    private static VideoPositionException positionConflict(
+            String position, String existingTitle, Throwable cause) {
+        String message = "Vị trí " + position + " đã được dùng cho video khác";
+        if (!isBlank(existingTitle)) {
+            message += ": " + existingTitle;
+        }
+        return new VideoPositionException(HttpStatus.CONFLICT, message + ".", cause);
+    }
+
+    private static ParsedPosition parsePosition(String requestedPosition) {
+        if (requestedPosition == null || requestedPosition.isBlank()) {
+            return new ParsedPosition(null, null, null);
+        }
+        String position = requestedPosition.trim();
+        if (!POSITION_PATTERN.matcher(position).matches()) {
+            throw new VideoPositionException(BAD_REQUEST, INVALID_POSITION_MESSAGE);
+        }
+        String[] parts = position.split("\\.", -1);
+        try {
+            int chapter = Integer.parseInt(parts[0]);
+            int lesson = parts.length == 1 ? 0 : Integer.parseInt(parts[1]);
+            return new ParsedPosition(position, chapter, lesson);
+        } catch (NumberFormatException exception) {
+            throw new VideoPositionException(BAD_REQUEST, INVALID_POSITION_MESSAGE);
+        }
+    }
+
+    private record ParsedPosition(String value, Integer chapter, Integer lesson) {
+    }
+
     private List<VocabularyResponseDto> loadVocabularies(UUID videoId) {
         findVideo(videoId);
         return vocabularyRepository.findByVideoIdOrderByCreatedAtAsc(videoId).stream()
@@ -342,7 +511,7 @@ public class VideoService {
                         .partName(part.getPartName())
                         .partType(part.getPartType())
                         .passageText(part.getPassageText())
-                        .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
+                        .recommendedTimeSeconds(part.getRecommendedTimeSeconds())
                         .orderIndex(part.getOrderIndex())
                         .questions(part.getQuestions().stream().map(question ->
                                 ExamResponseDto.QuestionDto.builder()
@@ -363,7 +532,8 @@ public class VideoService {
     public List<VideoResponseDto> getAll(String title) {
         if (title == null || title.isBlank()) {
             return cacheRegistry.getOrLoad(videoListCache, "ALL",
-                    () -> videoRepository.findAll().stream().map(VideoService::toDto).toList());
+                    () -> videoRepository.findAllInDisplayOrder().stream()
+                            .map(VideoService::toDto).toList());
         }
         return findByTitleQuery(title);
     }
@@ -377,7 +547,7 @@ public class VideoService {
     }
 
     private List<VideoResponseDto> findByTitleQuery(String title) {
-        return videoRepository.findByTitleContainingIgnoreCaseOrderByTitleAsc(title.trim())
+        return videoRepository.findByTitleContainingIgnoreCaseInDisplayOrder(title.trim())
                 .stream()
                 .map(VideoService::toDto)
                 .toList();
@@ -385,10 +555,11 @@ public class VideoService {
 
     public List<VideoTitleResponse> getAllTitles() {
         return cacheRegistry.getOrLoad(videoTitlesCache, "ALL", () ->
-                videoRepository.findAllByOrderByTitleAsc().stream()
+                videoRepository.findAllInDisplayOrder().stream()
                         .map(video -> VideoTitleResponse.builder()
                                 .videoId(video.getId())
                                 .title(video.getTitle())
+                                .position(video.getPosition())
                                 .build())
                         .toList());
     }
@@ -397,6 +568,7 @@ public class VideoService {
         return VideoResponseDto.builder()
                 .id(video.getId())
                 .title(video.getTitle())
+                .position(video.getPosition())
                 .videoUrl(video.getVideoUrl())
                 .documentUrl(video.getDocumentUrl())
                 .createdAt(video.getCreatedAt())

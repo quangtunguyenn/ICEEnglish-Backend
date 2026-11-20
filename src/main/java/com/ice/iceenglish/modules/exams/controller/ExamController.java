@@ -1,6 +1,7 @@
 package com.ice.iceenglish.modules.exams.controller;
 
 import com.ice.iceenglish.modules.exams.dto.AnswersRevealedResponse;
+import com.ice.iceenglish.modules.exams.dto.DeleteDraftExamsResponse;
 import com.ice.iceenglish.modules.exams.dto.ExamImportResponseDto;
 import com.ice.iceenglish.modules.exams.dto.ExamListPageResponse;
 import com.ice.iceenglish.modules.exams.dto.ExamPreviewResponseDto;
@@ -218,6 +219,15 @@ public class ExamController {
     public ResponseEntity<Void> archive(@PathVariable UUID id) {
         examService.archive(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/drafts")
+    @PreAuthorize(STAFF_ONLY)
+    public ResponseEntity<DeleteDraftExamsResponse> deleteAllDrafts() {
+        int deletedCount = examService.deleteAllDrafts();
+        return ResponseEntity.ok(DeleteDraftExamsResponse.builder()
+                .deletedCount(deletedCount)
+                .build());
     }
 
     /** Lấy trạng thái hiển thị đáp án (is_answers_revealed) của exam. */

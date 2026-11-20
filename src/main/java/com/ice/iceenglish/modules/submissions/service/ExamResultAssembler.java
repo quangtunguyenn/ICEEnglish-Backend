@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** Dựng các DTO kết quả từ lượt thi và snapshot đề (thuần bộ nhớ, không chạm DB). */
@@ -49,7 +50,7 @@ final class ExamResultAssembler {
 
     static ExamResultResponse assemble(Submission submission, List<UUID> order, ExamSnapshot exam,
             List<SubmissionAnswer> answers, ResultContent content,
-            List<ExamResultResponse.PartTimeLogDto> logs, UUID sampleVideoId, boolean guest) {
+            List<ExamResultResponse.PartTimeLogDto> logs, Set<UUID> guestAccessibleVideoIds, boolean guest) {
         Map<UUID, Integer> indexes = PartOrder.indexes(order);
         List<ExamSnapshot.QuestionSnap> orderedQuestions = new ArrayList<>(exam.questions());
         orderedQuestions.sort(Comparator
@@ -84,7 +85,7 @@ final class ExamResultAssembler {
                             .isCorrect(answer.isCorrect())
                             .explanation(question.explanation())
                             .partType(firstQuestionPartTypes.get(question.id()))
-                            .relatedVideo(relatedVideo(question, answer, content, guest, sampleVideoId))
+                            .relatedVideo(relatedVideo(question, answer, content, guest, guestAccessibleVideoIds))
                             .build();
                 })
                 .toList();
@@ -109,11 +110,11 @@ final class ExamResultAssembler {
     }
 
     private static ExamResultResponse.RelatedVideoDto relatedVideo(ExamSnapshot.QuestionSnap question,
-            SubmissionAnswer answer, ResultContent content, boolean guest, UUID sampleVideoId) {
+            SubmissionAnswer answer, ResultContent content, boolean guest, Set<UUID> guestAccessibleVideoIds) {
         ExamSnapshot.VideoSnap video = question.video();
         boolean visible = content != ResultContent.HOMEWORK_REVIEW
                 && (content == ResultContent.REVIEW || !Boolean.TRUE.equals(answer.isCorrect()))
-                && video != null && (!guest || video.id().equals(sampleVideoId));
+                && video != null && (!guest || guestAccessibleVideoIds.contains(video.id()));
         if (!visible) {
             return null;
         }

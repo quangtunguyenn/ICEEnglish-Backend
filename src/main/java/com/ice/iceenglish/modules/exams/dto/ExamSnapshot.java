@@ -18,10 +18,17 @@ import java.util.stream.Collectors;
 public final class ExamSnapshot {
 
     public record PartSnap(UUID id, String name, PartType partType, String passageText,
-                           String translate, Integer orderIndex, boolean fixedPosition, String shuffleGroup) {
+                           String translate, Integer orderIndex, boolean fixedPosition, String shuffleGroup,
+                           Integer recommendedTimeSeconds) {
         public PartSnap(UUID id, String name, PartType partType, String passageText,
                         String translate, Integer orderIndex) {
-            this(id, name, partType, passageText, translate, orderIndex, false, null);
+            this(id, name, partType, passageText, translate, orderIndex, false, null, null);
+        }
+
+        public PartSnap(UUID id, String name, PartType partType, String passageText,
+                        String translate, Integer orderIndex, boolean fixedPosition, String shuffleGroup) {
+            this(id, name, partType, passageText, translate, orderIndex,
+                    fixedPosition, shuffleGroup, null);
         }
     }
 
@@ -37,6 +44,7 @@ public final class ExamSnapshot {
     private final ExamStatus status;
     private final Integer durationMinutes;
     private final boolean shuffleParts;
+    private final boolean guestAccessible;
     private final List<PartSnap> parts;
     private final List<QuestionSnap> questions;
     private final Set<UUID> partIds;
@@ -50,12 +58,19 @@ public final class ExamSnapshot {
     public ExamSnapshot(UUID examId, String title, ExamType examType, ExamStatus status,
                         Integer durationMinutes, boolean shuffleParts,
                         List<PartSnap> parts, List<QuestionSnap> questions) {
+        this(examId, title, examType, status, durationMinutes, shuffleParts, false, parts, questions);
+    }
+
+    public ExamSnapshot(UUID examId, String title, ExamType examType, ExamStatus status,
+                        Integer durationMinutes, boolean shuffleParts, boolean guestAccessible,
+                        List<PartSnap> parts, List<QuestionSnap> questions) {
         this.examId = examId;
         this.title = title;
         this.examType = examType;
         this.status = status;
         this.durationMinutes = durationMinutes;
         this.shuffleParts = shuffleParts;
+        this.guestAccessible = guestAccessible;
         this.parts = List.copyOf(parts);
         this.questions = List.copyOf(questions);
         this.partIds = this.parts.stream().map(PartSnap::id).collect(Collectors.toUnmodifiableSet());
@@ -70,6 +85,7 @@ public final class ExamSnapshot {
     public ExamStatus status() { return status; }
     public Integer durationMinutes() { return durationMinutes; }
     public boolean shuffleParts() { return shuffleParts; }
+    public boolean guestAccessible() { return guestAccessible; }
     /** Các part theo thứ tự order_index. */
     public List<PartSnap> parts() { return parts; }
     /** Mọi câu hỏi của đề theo thứ tự order_index. */

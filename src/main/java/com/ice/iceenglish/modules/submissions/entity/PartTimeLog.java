@@ -31,8 +31,11 @@ public class PartTimeLog {
     @JoinColumn(name = "part_id", nullable = false)
     private ExamPart part;
 
-    @Column(name = "time_spent_seconds", nullable = false)
+    @Column(name = "time_spent_seconds")
     private Integer timeSpentSeconds;
+
+    @Column(name = "recommended_time_seconds")
+    private Integer recommendedTimeSeconds;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

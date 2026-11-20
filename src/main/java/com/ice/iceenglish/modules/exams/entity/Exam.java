@@ -53,6 +53,10 @@ public class Exam {
     @Builder.Default
     private boolean shuffleParts = false;
 
+    @Column(name = "guest_accessible", nullable = false, columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean guestAccessible = false;
+
     @Column(name = "answers_url", length = 1000)
     private String answersUrl;
 

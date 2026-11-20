@@ -8,6 +8,7 @@ import com.ice.iceenglish.modules.exams.repository.ExamRepository;
 import com.ice.iceenglish.modules.guest.GuestService;
 import com.ice.iceenglish.modules.submissions.service.SubmissionService;
 import com.ice.iceenglish.modules.videos.repository.VideoRepository;
+import com.ice.iceenglish.modules.videos.entity.Video;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -24,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.List;
 import java.time.Clock;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -71,7 +73,9 @@ class VideoVocabularyPostgresIntegrationTest {
         assertEquals("/ˌkɒn.vəˈseɪ.ʃən/", item.getPhonetic());
         assertEquals("We had a conversation about school.", item.getExampleSentence());
         assertEquals("Chúng tôi đã trò chuyện về trường học.", item.getExampleSentenceTranslate());
-        GuestService guest = new GuestService("", response.getVideoId().toString(), 30,
+        service.guestAccess(response.getVideoId(), true);
+        GuestService guest = new GuestService(30,
+                mock(com.ice.iceenglish.modules.exams.repository.ExamRepository.class),
                 mock(ExamSnapshotService.class), mock(ExamService.class), service,
                 mock(SubmissionService.class), Clock.systemUTC());
         assertEquals(direct, guest.vocabularies(response.getVideoId()));
@@ -90,6 +94,29 @@ class VideoVocabularyPostgresIntegrationTest {
         assertEquals(count, videos.count());
         assertEquals(vocabularyCount, vocabularies.count());
         assertEquals(examCount, exams.count());
+    }
+
+    @Test
+    void videoListsSortPositionComponentsNumericallyAndPlaceUnpositionedLast() {
+        videos.saveAllAndFlush(List.of(
+                video("Chapter 2", "2", 2, 0),
+                video("Lesson 1.10", "1.10", 1, 10),
+                video("Lesson 1.2", "1.2", 1, 2),
+                video("Chapter 1", "1", 1, 0),
+                video("No position", null, null, null)));
+
+        List<Video> listed = service.getAll(null).stream()
+                .map(item -> videos.findById(item.getId()).orElseThrow())
+                .toList();
+
+        assertEquals(List.of("Chapter 1", "Lesson 1.2", "Lesson 1.10", "Chapter 2"),
+                listed.subList(0, 4).stream().map(Video::getTitle).toList());
+        assertTrue(listed.subList(4, listed.size()).stream().allMatch(v -> v.getPosition() == null));
+    }
+
+    private static Video video(String title, String position, Integer chapter, Integer lesson) {
+        return Video.builder().title(title).position(position).positionChapter(chapter)
+                .positionLesson(lesson).videoUrl("https://example.com/" + title.replace(' ', '-')).build();
     }
 
     private static MockMultipartFile file(String json) {

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -90,6 +91,10 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
     }
 
     Optional<Submission> findByIdAndUserUsername(UUID id, String username);
+
+    @Modifying
+    @Query("delete from Submission s where s.exam.id in :examIds")
+    int deleteByExamIds(@Param("examIds") List<UUID> examIds);
 
     @Query("select s.id as submissionId, s.exam.id as examId, s.user.id as userId, "
             + "s.user.fullName as fullName, s.totalCorrect as totalCorrect, s.totalQuestions as totalQuestions, "

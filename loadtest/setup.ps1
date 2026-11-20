@@ -33,8 +33,7 @@ if (-not $hasReading) {
 $env:SPRING_DATASOURCE_URL = "jdbc:postgresql://localhost:5432/$Database"
 $env:SERVER_PORT = "$Port"
 $env:JAVA_TOOL_OPTIONS = "-Xmx$Xmx"
-# Chế độ khách dùng id cố định trong seed.sql (video 1, đề MOCK và GENERAL_EXAM).
-$env:APP_GUEST_VIDEO_ID = '11111111-1111-1111-1111-111111111111'
+# Chế độ khách dùng quyền truy cập trong seed.sql (video 1, đề MOCK và GENERAL_EXAM).
 $env:APP_GUEST_EXAM_IDS = '22222222-2222-2222-2222-222222222222,33333333-3333-3333-3333-333333333333'
 $log = Join-Path $root "target\loadtest-app-$Port.log"
 $proc = Start-Process -FilePath java -ArgumentList '-jar', $jar -RedirectStandardOutput $log `

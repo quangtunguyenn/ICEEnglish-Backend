@@ -12,4 +12,5 @@ public class VideoTitleResponse {
     @JsonProperty("video_id")
     UUID videoId;
     String title;
+    String position;
 }

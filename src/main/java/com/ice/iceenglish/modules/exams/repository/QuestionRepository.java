@@ -2,6 +2,7 @@ package com.ice.iceenglish.modules.exams.repository;
 
 import com.ice.iceenglish.modules.exams.entity.Question;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -36,6 +37,10 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
 
     @Query("select count(q.id) from Question q join q.part p where p.exam.id = :examId")
     long countByExamId(@Param("examId") UUID examId);
+
+    @Modifying
+    @Query("update Question q set q.relatedVideo = null where q.relatedVideo.id = :videoId")
+    int clearRelatedVideoReference(@Param("videoId") UUID videoId);
 
     /** Như findAllByExamId nhưng tách thành 2 truy vấn đơn giản (dùng được index) và nạp sẵn quan hệ. */
     default List<Question> findAllWithDetailsByExamId(UUID examId) {

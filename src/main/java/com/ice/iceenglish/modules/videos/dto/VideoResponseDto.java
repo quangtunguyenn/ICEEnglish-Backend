@@ -11,6 +11,7 @@ import java.util.UUID;
 public class VideoResponseDto {
     UUID id;
     String title;
+    String position;
     String videoUrl;
     String documentUrl;
     LocalDateTime createdAt;

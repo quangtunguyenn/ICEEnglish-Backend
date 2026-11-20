@@ -56,7 +56,7 @@ public class VideoController {
         return ResponseEntity.ok(videoService.getAll(title));
     }
 
-    /** Lấy video_id và title của toàn bộ video, sắp xếp theo title. */
+    /** Lấy video_id và title của toàn bộ video, sắp xếp theo position. */
     @GetMapping("/titles")
     public ResponseEntity<List<VideoTitleResponse>> getAllVideoTitles() {
         return ResponseEntity.ok(videoService.getAllTitles());

@@ -17,7 +17,9 @@ public class CreateVideoLearningBundleRequest {
 
     @Data
     public static class VideoInfo {
+        private String type;
         private String title;
+        private String position;
         private String videoUrl;
         @JsonProperty("answers_url")
         @JsonAlias("answersUrl")

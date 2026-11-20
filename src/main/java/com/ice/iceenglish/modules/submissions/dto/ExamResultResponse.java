@@ -56,7 +56,9 @@ public class ExamResultResponse {
     public static class PartTimeLogDto {
         private UUID partId;
         private String partName;
+        private Integer displayIndex;
         private Integer timeSpentSeconds;
+        private Integer recommendedTimeSeconds;
     }
 
     @Data

@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
@@ -32,6 +33,14 @@ public interface ExamRepository extends JpaRepository<Exam, UUID> {
             "ORDER BY e.createdAt DESC")
     List<Exam> findByVideoIdAndExamTypeWithParts(
             @Param("videoId") UUID videoId, @Param("examType") ExamType examType);
+
+    @Query("SELECT DISTINCT e FROM Exam e LEFT JOIN FETCH e.parts " +
+            "WHERE e.video.id = :videoId ORDER BY e.createdAt DESC")
+    List<Exam> findByVideoIdWithParts(@Param("videoId") UUID videoId);
+
+    @Modifying
+    @Query("update Exam e set e.video = null where e.video.id = :videoId")
+    int clearVideoReference(@Param("videoId") UUID videoId);
 
     List<Exam> findByStatusOrderByCreatedAtDesc(ExamStatus status);
 

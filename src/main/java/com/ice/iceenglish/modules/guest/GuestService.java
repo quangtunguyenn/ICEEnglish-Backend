@@ -4,6 +4,8 @@ import com.ice.iceenglish.modules.exams.dto.ExamResponseDto;
 import com.ice.iceenglish.modules.exams.dto.ExamSnapshot;
 import com.ice.iceenglish.modules.exams.enums.ExamStatus;
 import com.ice.iceenglish.modules.exams.enums.ExamType;
+import com.ice.iceenglish.modules.exams.entity.Exam;
+import com.ice.iceenglish.modules.exams.repository.ExamRepository;
 import com.ice.iceenglish.modules.exams.service.ExamService;
 import com.ice.iceenglish.modules.exams.service.ExamSnapshotService;
 import com.ice.iceenglish.modules.learning.dto.VocabularyResponseDto;
@@ -26,27 +28,25 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 public class GuestService {
-    public record GuestVideo(UUID videoId, String title, boolean accessible) {
+    public record GuestVideo(UUID videoId, String title, String position, boolean accessible) {
     }
 
-    public record GuestExam(UUID id, String title, ExamType mode, Integer durationMinutes, int totalQuestions) {
+    public record GuestExam(UUID id, String title, ExamType mode, Integer durationMinutes,
+            int totalQuestions, boolean accessible) {
     }
 
     private static final Duration SESSION_TTL = Duration.ofHours(24);
     private static final int MAX_SESSIONS = 1000;
-    private final Set<UUID> examIds;
-    private final UUID videoId;
+    private final ExamRepository examRepository;
     private final ExamSnapshotService snapshots;
     private final ExamService exams;
     private final VideoService videos;
@@ -55,15 +55,11 @@ public class GuestService {
     private final long graceSeconds;
     private final Map<UUID, Attempt> attempts = new ConcurrentHashMap<>();
 
-    public GuestService(@Value("${app.guest.exam-ids:}") String examIds,
-            @Value("${app.guest.video-id:}") String videoId,
-            @Value("${app.exam.submit-grace-seconds:30}") long graceSeconds,
-            ExamSnapshotService snapshots, ExamService exams, VideoService videos,
+    public GuestService(@Value("${app.exam.submit-grace-seconds:30}") long graceSeconds,
+            ExamRepository examRepository, ExamSnapshotService snapshots, ExamService exams, VideoService videos,
             SubmissionService submissions, Clock clock) {
-        this.examIds = Arrays.stream(examIds.split(",")).map(String::trim)
-                .filter(s -> !s.isEmpty()).map(UUID::fromString).collect(Collectors.toUnmodifiableSet());
-        this.videoId = videoId.isBlank() ? null : UUID.fromString(videoId.trim());
         this.graceSeconds = graceSeconds;
+        this.examRepository = examRepository;
         this.snapshots = snapshots;
         this.exams = exams;
         this.videos = videos;
@@ -75,16 +71,26 @@ public class GuestService {
         if (mode != ExamType.GENERAL_EXAM && mode != ExamType.MOCK) {
             throw error(HttpStatus.BAD_REQUEST, "mode phải là GENERAL_EXAM hoặc MOCK.");
         }
-        return examIds.stream().sorted().map(snapshots::find).flatMap(java.util.Optional::stream)
-                .filter(e -> e.status() == ExamStatus.PUBLISHED && e.examType() == mode)
-                .map(e -> new GuestExam(e.examId(), e.title(), e.examType(),
-                        e.durationMinutes(), e.totalQuestions()))
+        List<Exam> published = examRepository.findByStatusAndExamTypeOrderByCreatedAtDesc(
+                ExamStatus.PUBLISHED, mode);
+        if (published.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> examIds = published.stream().map(Exam::getId).toList();
+        Map<UUID, Long> questionCounts = examRepository.findQuestionCountsByExamIds(examIds).stream()
+                .collect(Collectors.toMap(
+                        ExamRepository.ExamQuestionCount::getExamId,
+                        ExamRepository.ExamQuestionCount::getTotalQuestions));
+        return published.stream()
+                .map(e -> new GuestExam(e.getId(), e.getTitle(), e.getExamType(),
+                        e.getDurationMinutes(), Math.toIntExact(questionCounts.getOrDefault(e.getId(), 0L)),
+                        e.isGuestAccessible()))
                 .toList();
     }
 
     public List<GuestVideo> listVideos() {
-        return videos.getAllTitles().stream()
-                .map(v -> new GuestVideo(v.getVideoId(), v.getTitle(), v.getVideoId().equals(videoId)))
+        return videos.getAllGuestTitles().stream()
+                .map(v -> new GuestVideo(v.videoId(), v.title(), v.position(), v.accessible()))
                 .toList();
     }
 
@@ -182,7 +188,7 @@ public class GuestService {
         synchronized (attempt) {
             if (attempt.result != null)
                 return attempt.result.getPartTimeLogs();
-            return logs(attempt, exam, LocalDateTime.now(clock), false);
+            return logs(attempt, exam, LocalDateTime.now(clock), true);
         }
     }
 
@@ -228,7 +234,7 @@ public class GuestService {
             List<ExamResultResponse.PartTimeLogDto> logs = logs(attempt, exam, now, true);
             try {
                 attempt.result = submissions.gradeGuest(exam, attempt.order, attempt.startedAt,
-                        now, request, logs, videoId);
+                        now, request, logs, videos.getGuestAccessibleVideoIds());
             } catch (IllegalArgumentException ex) {
                 throw error(HttpStatus.BAD_REQUEST, ex.getMessage());
             }
@@ -241,22 +247,25 @@ public class GuestService {
         Map<UUID, Integer> totals = new HashMap<>(attempt.seconds);
         if (includeActive && attempt.activePart != null) {
             int elapsed = Math.toIntExact(Math.max(0, Duration.between(attempt.partStartedAt, now).getSeconds()));
-            if (elapsed > 0)
-                totals.merge(attempt.activePart, elapsed, Math::addExact);
+            totals.merge(attempt.activePart, elapsed, Math::addExact);
         }
         Map<UUID, String> names = exam.parts().stream()
                 .collect(Collectors.toMap(ExamSnapshot.PartSnap::id, ExamSnapshot.PartSnap::name));
-        return attempt.order.stream().filter(totals::containsKey)
+        Map<UUID, Integer> indexes = PartOrder.indexes(attempt.order);
+        return attempt.order.stream()
                 .map(id -> ExamResultResponse.PartTimeLogDto.builder().partId(id)
-                        .partName(names.get(id)).timeSpentSeconds(totals.get(id)).build())
+                        .partName(names.get(id))
+                        .displayIndex(indexes.get(id))
+                        .timeSpentSeconds(totals.get(id))
+                        .recommendedTimeSeconds(attempt.recommendedTimes.get(id))
+                        .build())
                 .toList();
     }
 
     private void accumulate(Attempt attempt, LocalDateTime now) {
         if (attempt.activePart != null) {
             int elapsed = Math.toIntExact(Math.max(0, Duration.between(attempt.partStartedAt, now).getSeconds()));
-            if (elapsed > 0)
-                attempt.seconds.merge(attempt.activePart, elapsed, Math::addExact);
+            attempt.seconds.merge(attempt.activePart, elapsed, Math::addExact);
         }
     }
 
@@ -285,17 +294,18 @@ public class GuestService {
                         .map(p -> StartExamResponse.PartTimeDto.builder().partId(p.id())
                                 .partName(p.name()).orderIndex(p.orderIndex())
                                 .displayIndex(indexes.get(p.id()))
-                                .recommendedTimeSeconds(p.partType().getStandardTimeSeconds()).build())
+                                .recommendedTimeSeconds(attempt.recommendedTimes.get(p.id())).build())
                         .toList())
                 .build();
     }
 
     private ExamSnapshot requireSampleExam(UUID id) {
-        if (!examIds.contains(id))
-            throw error(HttpStatus.NOT_FOUND, "Không tìm thấy đề mẫu.");
         ExamSnapshot exam = requirePublished(id);
         if (exam.examType() != ExamType.GENERAL_EXAM && exam.examType() != ExamType.MOCK) {
             throw error(HttpStatus.NOT_FOUND, "Không tìm thấy đề mẫu.");
+        }
+        if (!exam.guestAccessible()) {
+            throw error(HttpStatus.FORBIDDEN, "Đề này dành cho học viên ICE English.");
         }
         return exam;
     }
@@ -316,8 +326,7 @@ public class GuestService {
     }
 
     private void requireVideo(UUID id) {
-        if (!id.equals(videoId))
-            throw error(HttpStatus.NOT_FOUND, "Không tìm thấy video mẫu.");
+        videos.requireGuestAccess(id);
     }
 
     private Attempt requireAttempt(UUID token, UUID examId) {
@@ -347,6 +356,7 @@ public class GuestService {
         private final LocalDateTime startedAt;
         private final List<UUID> order;
         private final Map<UUID, Integer> seconds = new HashMap<>();
+        private final Map<UUID, Integer> recommendedTimes = new HashMap<>();
         private UUID activePart;
         private LocalDateTime partStartedAt;
         private ExamResultResponse result;
@@ -358,6 +368,8 @@ public class GuestService {
                     ? PartOrder.shuffled(exam)
                     : new ArrayList<>(exam.parts().stream()
                             .map(ExamSnapshot.PartSnap::id).toList());
+            exam.parts().forEach(part ->
+                    recommendedTimes.put(part.id(), part.recommendedTimeSeconds()));
         }
     }
 }

@@ -1,19 +1,25 @@
 # Hướng dẫn API chế độ khách
 
-Backend hỗ trợ API khách tại `/api/v1/guest`; không cần `Authorization`. Chỉ đề và video được cấu hình làm mẫu mới mở được. Học sinh đã đăng nhập tiếp tục dùng API hiện tại.
+Backend hỗ trợ API khách tại `/api/v1/guest`; không cần `Authorization`. Danh sách hiển thị tất cả đề đã xuất bản và tất cả video; quyền làm đề/mở nội dung được điều khiển bằng cờ truy cập khách trong database. Học sinh đã đăng nhập tiếp tục dùng API hiện tại.
 
-## 1. Cấu hình nội dung mẫu
+## 1. Quyền truy cập nội dung khách
 
-Sau khi import và xuất bản đề, cấu hình các UUID trong môi trường chạy backend:
+Không cần cấu hình UUID trong `application.properties` hoặc khởi động lại backend để đổi nội dung khách. Admin bật/tắt từng đề và video qua API:
 
-```properties
-app.guest.exam-ids=11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222
-app.guest.video-id=33333333-3333-3333-3333-333333333333
+```http
+PUT /api/v1/admin/exams/{id}/guest-access
+PUT /api/v1/admin/videos/{id}/guest-access
+Authorization: Bearer <admin-token>
+Content-Type: application/json
 ```
 
-`app.guest.exam-ids` chứa nhiều ID đề `GENERAL_EXAM` và/hoặc `MOCK`; `app.guest.video-id` là một video. Có thể dùng biến môi trường Spring Boot `APP_GUEST_EXAM_IDS` và `APP_GUEST_VIDEO_ID`. Nếu không cấu hình, không đề hoặc video nào được mở cho khách. UUID sai định dạng làm ứng dụng khởi động lỗi; đề không tồn tại hoặc chưa xuất bản không xuất hiện trong danh sách. Thay cấu hình cần khởi động lại ứng dụng.
+```json
+{ "guestAccessible": true }
+```
 
-Không cần migration, thay API import hay tạo dữ liệu bài nộp trong database. Danh sách video vẫn hiển thị tất cả tiêu đề; chỉ video mẫu có thể mở nội dung.
+Body `false` để khóa lại. API trả `204 No Content`; giá trị mới có hiệu lực trên instance hiện tại ngay sau khi cập nhật, và trên instance khác sau thời gian TTL cache nếu đang chạy nhiều instance. Giá trị mặc định của nội dung mới là `false`.
+
+Trước khi deploy, áp dụng các migration V12 (`exams.guest_accessible`) và V13 (`videos.guest_accessible`). Hai đề mẫu và video guest đã dùng trong cấu hình mặc định cũ được migration bật quyền để giữ hành vi hiện tại.
 
 ## 2. Phiên làm bài
 
@@ -49,12 +55,15 @@ Ví dụ response:
     "title": "Đề mẫu",
     "mode": "MOCK",
     "durationMinutes": 50,
-    "totalQuestions": 40
+    "totalQuestions": 40,
+    "accessible": true
   }
 ]
 ```
 
-Chỉ trả đề có ID trong cấu hình, đúng chế độ và `PUBLISHED`. Danh sách rỗng nếu chưa có đề mẫu phù hợp.
+Trả metadata của mọi đề `PUBLISHED` đúng chế độ, mới nhất trước theo `createdAt`. Danh sách chỉ chứa `id`, `title`, `mode`, `durationMinutes`, `totalQuestions` và `accessible`; không có câu hỏi hoặc đáp án. `accessible: true` nghĩa là khách được làm đề; `false` nghĩa là chỉ học viên ICE English được làm. Danh sách rỗng nếu chưa có đề phù hợp.
+
+Các endpoint làm bài guest trả `403 Forbidden` với thông báo `Đề này dành cho học viên ICE English.` nếu đề không accessible; việc kiểm tra được thực hiện ở backend, không chỉ ở giao diện.
 
 ### 3.2 Bắt đầu, lấy đề và chuyển phần
 
@@ -78,7 +87,9 @@ PUT /api/v1/guest/exams/{examId}/parts/{partId}/time
 X-Guest-Attempt: <submissionId>
 ```
 
-Trả `204`. Backend đo thời gian từ các sự kiện; lặp lại part đang mở không đặt lại đồng hồ. `GET /api/v1/guest/exams/{examId}/part-logs` với cùng header trả các khoảng đã chốt; trước khi nộp không bao gồm khoảng đang chạy, sau khi nộp trả kết quả cuối.
+Trả `204`. Backend đo thời gian từ các sự kiện; lặp lại part đang mở không đặt lại đồng hồ. `GET /api/v1/guest/exams/{examId}/part-logs` với cùng header trả các part theo thứ tự của lượt, gồm `partId`, `partName`, `displayIndex`, `timeSpentSeconds` và `recommendedTimeSeconds`. Trước khi nộp, thời gian của part đang mở được tính đến thời điểm gọi API; part chưa có thời gian trả `null`. Sau khi nộp, response giữ nguyên kết quả cuối.
+
+Thời gian là số giây theo đồng hồ server từ lần backend nhận sự kiện vào part đến lần nhận chuyển part/nộp bài; các khoảng khi tab bị ẩn, đóng hoặc mất kết nối vẫn trôi và được tính vào part đang mở. Backend không thể xác định thời gian học tập tập trung. Giá trị `recommendedTimeSeconds` được chụp khi bắt đầu lượt khách.
 
 Với `MOCK`, backend quyết định hạn nộp từ thời điểm bắt đầu và thời lượng đề. `serverNow`/`expiresAt` dùng để hiển thị đồng hồ; thời gian ân hạn nộp cấu hình `app.exam.submit-grace-seconds`, mặc định 30 giây, không phải thời gian làm thêm. Khi hết giờ backend từ chối chuyển part; sau hạn cộng ân hạn backend từ chối nộp. `GENERAL_EXAM` không có hạn nộp. Thời gian hiển thị theo múi giờ Việt Nam.
 
@@ -118,14 +129,14 @@ GET /api/v1/guest/videos
 ]
 ```
 
-Danh sách không trả URL nội dung. Frontend hiển thị các mục `accessible: false` là khóa và yêu cầu đăng nhập khi bấm. Với video mẫu:
+Danh sách không trả URL nội dung. Frontend hiển thị các mục `accessible: false` là khóa; khi bấm, hiển thị popup mời đăng ký tư vấn. Với video có `accessible: true`:
 
 ```http
 GET /api/v1/guest/videos/{videoId}/learning-content
 GET /api/v1/guest/videos/{videoId}/vocabularies
 ```
 
-`learning-content` trả video, tài liệu, homework và từ vựng như API học sinh, nhưng không trả URL đáp án homework trước khi nộp. Video khác trả `404` dù khách biết ID.
+`learning-content` trả video, tài liệu, homework và từ vựng như API học sinh, nhưng không trả URL đáp án homework trước khi nộp. Video bị khóa trả `403` với message `Video này dành cho học viên ICE English.`; video không tồn tại trả `404`. Backend kiểm tra quyền cho learning-content, vocabularies và các thao tác homework của khách.
 
 Các từ vựng trong hai API khách có thêm `phonetic`, `exampleSentence`, `exampleSentenceTranslate`; các giá trị có thể là `null` với dữ liệu cũ. Xem `video-api-frontend-guide.md` để biết chi tiết.
 

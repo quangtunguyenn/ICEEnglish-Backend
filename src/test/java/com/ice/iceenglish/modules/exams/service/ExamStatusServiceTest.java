@@ -10,6 +10,7 @@ import com.ice.iceenglish.modules.videos.repository.VideoRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -34,5 +35,40 @@ class ExamStatusServiceTest {
 
         assertEquals(ExamStatus.PUBLISHED, exam.getStatus());
         verify(caches).evictAllAfterCommit();
+    }
+
+    @Test
+    void deletesOnlyDraftExamsAndEvictsCaches() {
+        ExamRepository exams = mock(ExamRepository.class);
+        CacheRegistry caches = mock(CacheRegistry.class);
+        List<Exam> drafts = List.of(
+                Exam.builder().status(ExamStatus.DRAFT).build(),
+                Exam.builder().status(ExamStatus.DRAFT).build());
+        when(exams.findByStatusOrderByCreatedAtDesc(ExamStatus.DRAFT)).thenReturn(drafts);
+        ExamService service = new ExamService(
+                exams, mock(ExamPartRepository.class), mock(VideoRepository.class),
+                mock(ExamImportValidator.class), new ObjectMapper(), caches,
+                mock(PlatformTransactionManager.class));
+
+        assertEquals(2, service.deleteAllDrafts());
+
+        verify(exams).deleteAll(drafts);
+        verify(caches).evictAllAfterCommit();
+    }
+
+    @Test
+    void doesNotEvictCachesWhenThereAreNoDraftExams() {
+        ExamRepository exams = mock(ExamRepository.class);
+        CacheRegistry caches = mock(CacheRegistry.class);
+        when(exams.findByStatusOrderByCreatedAtDesc(ExamStatus.DRAFT)).thenReturn(List.of());
+        ExamService service = new ExamService(
+                exams, mock(ExamPartRepository.class), mock(VideoRepository.class),
+                mock(ExamImportValidator.class), new ObjectMapper(), caches,
+                mock(PlatformTransactionManager.class));
+
+        assertEquals(0, service.deleteAllDrafts());
+
+        verify(exams).deleteAll(List.of());
+        verify(caches, never()).evictAllAfterCommit();
     }
 }

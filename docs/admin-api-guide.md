@@ -144,7 +144,7 @@ Tài khoản không hoạt động không đăng nhập được (`401`) và JWT
 
 ### Tạo learning bundle
 
-`ADMIN` hoặc `TEACHER`. Tạo video, homework và từ vựng trong cùng một request.
+`ADMIN` hoặc `TEACHER`. Tạo video và, tùy loại nội dung, homework/từ vựng trong cùng một request.
 
 ```http
 POST /videos/learning-bundle
@@ -171,6 +171,7 @@ Các trường chính trong JSON:
 ```json
 {
   "video": {
+    "type": "lecture",
     "title": "Daily Conversation",
     "videoUrl": "https://www.youtube.com/watch?v=example",
     "documentUrl": "https://drive.google.com/..."
@@ -197,6 +198,9 @@ Các trường chính trong JSON:
 }
 ```
 
+`video.type` nhận `lecture`, `practice` hoặc `exam_tips`; nếu bỏ qua thì mặc định `lecture` để bundle cũ tiếp tục hoạt động. `lecture` yêu cầu homework có ít nhất một câu hỏi và ít nhất một mục từ vựng. `practice`/`exam_tips` có thể không gửi homework và từ vựng; khi homework không có, response `homeworkId` là `null`, khi từ vựng không có, `vocabularyCount` là `0`.
+`video.position` là tùy chọn trong bundle (mặc định `null`), nhận dạng số như `1`, `1.1`, `2.10` và phải duy nhất nếu có giá trị.
+
 Với câu hỏi, có thể gửi `options: {"A":"...", "B":"...", "C":"...", "D":"..."}` thay cho `optA`–`optD`. `correctOption` cũng chấp nhận `correct_option`, `correctOpt` hoặc `correct_opt`. Tên bài homework có thể đặt ở `homework.title` hoặc `homework.exam.title`. Xem file mẫu đầy đủ: [learning-bundle-sample.json](../samples/learning-bundle-sample.json).
 
 Response `201 Created`:
@@ -208,6 +212,22 @@ Response `201 Created`:
   "vocabularyCount": 3
 }
 ```
+
+### Cập nhật thứ tự video
+
+Admin và teacher có thể gán hoặc xóa vị trí cho video. Gửi `null` hoặc chuỗi rỗng để xóa; vị trí được so sánh theo từng phần số nguyên. Mọi danh sách video trả `position`, xếp video có vị trí trước theo thứ tự số, video không có vị trí sau theo `createdAt` tăng dần.
+
+```http
+PUT /admin/videos/{videoId}/position
+Authorization: Bearer <admin-or-teacher-token>
+Content-Type: application/json
+```
+
+```json
+{ "position": "2.3" }
+```
+
+Response `204 No Content`; `400` nếu sai định dạng, `404` nếu không có video, `409` nếu trùng vị trí. Áp dụng migration `src/main/resources/db/migration/V15__Add_video_position.sql` trước khi deploy.
 
 ## 4. Quản lý đề thi GENERAL_EXAM và MOCK
 
@@ -235,8 +255,9 @@ Cấu trúc JSON rút gọn:
   },
   "parts": [
     {
-      "part_type": "GRAMMAR",
-      "part_name": "Grammar",
+      "part_type": "ARRANGEMENT",
+      "part_name": "Arrangement",
+      "recommended_time_seconds": 300,
       "order_index": 1,
       "questions": [
         {
@@ -263,6 +284,12 @@ part). Có thể đặt `fixed_position: true` trên part để giữ nguyên v�
 dùng `shuffle_group` để chỉ trộn các part cùng nhóm với nhau.
 
 Các loại `part_type` hợp lệ: `GRAMMAR`, `CLOZE_TEST`, `ARRANGEMENT`, `READING_8`, `READING_10`, `FILLIN_CLOZE`. Đề phải có cấu trúc và thứ tự câu/part hợp lệ; API trả lỗi kèm đường dẫn trường JSON không hợp lệ.
+
+`recommended_time_seconds` là trường tùy chọn. Nếu gửi, phải là số nguyên dương
+khớp thời gian chuẩn của `part_type`; nếu bỏ qua, thời gian gợi ý được lưu và
+trả là `null`. Khi học sinh bắt đầu lượt `GENERAL_EXAM` hoặc `MOCK`, backend
+lưu giá trị này cho từng part của lượt để kết quả lịch sử không đổi nếu đề được
+chỉnh sửa sau đó.
 
 Database cần có migration `V3__Add_submission_part_shuffle.sql` để lưu cấu hình
 trộn và thứ tự part của lượt làm. Không chạy migration trên môi trường đang dùng
@@ -349,6 +376,40 @@ Authorization: Bearer <staff-token>
 ```
 
 Response `204 No Content`. Archive không xóa dữ liệu; đề không còn được liệt kê là đề đã publish và học sinh không thể truy cập như đề đang mở.
+
+### Xóa tất cả đề nháp
+
+Chỉ `ADMIN` hoặc `TEACHER`. Xóa cứng các đề đang ở trạng thái `DRAFT` cùng dữ liệu
+phần/câu hỏi liên quan; các đề `PUBLISHED` và `ARCHIVED` không bị ảnh hưởng.
+
+```http
+DELETE /exams/drafts
+Authorization: Bearer <staff-token>
+```
+
+Response `200 OK`:
+
+```json
+{ "deletedCount": 3 }
+```
+
+`deletedCount` bằng 0 nếu không có đề nháp.
+
+### Bật/tắt quyền trải nghiệm cho khách
+
+Chỉ `ADMIN` được phép. Giá trị mặc định của đề mới là `false`.
+
+```http
+PUT /admin/exams/{examId}/guest-access
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+```
+
+```json
+{ "guestAccessible": true }
+```
+
+Response `204 No Content`. Danh sách guest vẫn hiển thị tất cả đề `PUBLISHED`; trường `accessible` phản ánh cờ này. Khách chỉ có thể bắt đầu và thao tác với đề khi cờ là `true`.
 
 ### Trạng thái hiển thị đáp án
 

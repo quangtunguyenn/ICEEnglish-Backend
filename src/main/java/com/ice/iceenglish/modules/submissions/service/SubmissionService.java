@@ -103,8 +103,11 @@ public class SubmissionService {
                 return toStartExamResponse(existingSubmission.get(), exam);
             }
         }
-
         LocalDateTime startedAt = LocalDateTime.now(serverClock);
+        boolean shuffleParts = exam.shuffleParts() && exam.examType() != ExamType.HOMEWORK;
+        List<UUID> partOrder = shuffleParts
+                ? PartOrder.shuffled(exam)
+                : exam.parts().stream().map(ExamSnapshot.PartSnap::id).toList();
         Submission submission = Submission.builder()
                 .user(user)
                 .exam(examRepository.getReferenceById(examId))
@@ -113,10 +116,10 @@ public class SubmissionService {
                 .totalQuestions(totalQuestions)
                 .totalCorrect(0)
                 .startedAt(startedAt)
-                .partOrder(exam.shuffleParts() && exam.examType() != ExamType.HOMEWORK
-                        ? PartOrder.shuffled(exam) : null)
+                .partOrder(shuffleParts ? partOrder : null)
                 .build();
         Submission saved = submissionRepository.save(submission);
+        savePartTimeSnapshots(saved, exam, partOrder);
         return toStartExamResponse(saved, exam);
     }
 
@@ -329,6 +332,9 @@ public class SubmissionService {
         List<UUID> order = resolvedPartOrder(submission, exam);
         Map<UUID, ExamSnapshot.PartSnap> parts = exam.parts().stream()
                 .collect(Collectors.toMap(ExamSnapshot.PartSnap::id, Function.identity()));
+        Map<UUID, PartTimeLog> timingSnapshots = partTimeLogRepository
+                .findBySubmissionIdWithPart(submission.getId()).stream()
+                .collect(Collectors.toMap(log -> log.getPart().getId(), Function.identity()));
         Map<UUID, Integer> indexes = PartOrder.indexes(order);
         return StartExamResponse.builder()
                 .submissionId(submission.getId())
@@ -349,10 +355,27 @@ public class SubmissionService {
                                 .partName(part.name())
                                 .orderIndex(part.orderIndex())
                                 .displayIndex(indexes.get(part.id()))
-                                .recommendedTimeSeconds(part.partType().getStandardTimeSeconds())
+                                .recommendedTimeSeconds(Optional.ofNullable(timingSnapshots.get(part.id()))
+                                        .map(PartTimeLog::getRecommendedTimeSeconds).orElse(null))
                                 .build())
                         .toList())
                 .build();
+    }
+
+    private void savePartTimeSnapshots(
+            Submission submission, ExamSnapshot exam, List<UUID> partOrder) {
+        if (partOrder.isEmpty()) {
+            return;
+        }
+        Map<UUID, ExamSnapshot.PartSnap> parts = exam.parts().stream()
+                .collect(Collectors.toMap(ExamSnapshot.PartSnap::id, Function.identity()));
+        partTimeLogRepository.saveAll(partOrder.stream()
+                .map(partId -> PartTimeLog.builder()
+                        .submission(submission)
+                        .part(examPartRepository.getReferenceById(partId))
+                        .recommendedTimeSeconds(parts.get(partId).recommendedTimeSeconds())
+                        .build())
+                .toList());
     }
 
     @Transactional(readOnly = true)
@@ -416,8 +439,9 @@ public class SubmissionService {
         requireStudent(username);
         Submission submission = submissionRepository.findByIdAndUserUsername(submissionId, username)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lượt thi."));
-        return partTimeLogs(submission,
-                resolvedPartOrder(submission, ensureSnapshot(submission)));
+        ExamSnapshot exam = ensureSnapshot(submission);
+        return partTimeLogs(submission, exam, resolvedPartOrder(submission, exam),
+                LocalDateTime.now(serverClock), true);
     }
 
     @Transactional
@@ -536,12 +560,13 @@ public class SubmissionService {
             Submission submission, ExamSnapshot exam, List<SubmissionAnswer> answers,
             ResultContent content) {
         return toResultResponse(submission, exam, answers, content,
-                partTimeLogs(submission, resolvedPartOrder(submission, exam)), null, false);
+                partTimeLogs(submission, exam, resolvedPartOrder(submission, exam),
+                        LocalDateTime.now(serverClock), false), null, false);
     }
 
     public ExamResultResponse gradeGuest(ExamSnapshot exam, List<UUID> partOrder,
             LocalDateTime startedAt, LocalDateTime submittedAt, SubmitExamRequest request,
-            List<ExamResultResponse.PartTimeLogDto> logs, UUID sampleVideoId) {
+            List<ExamResultResponse.PartTimeLogDto> logs, Set<UUID> guestAccessibleVideoIds) {
         Map<UUID, String> selected = SubmittedAnswers.parse(request, exam.questionsById());
         List<SubmissionAnswer> answers = exam.questions().stream().map(question -> {
             String value = selected.get(question.id());
@@ -558,15 +583,15 @@ public class SubmissionService {
                 .totalCorrect(correct)
                 .build();
         return toResultResponse(temporary, exam, answers, ResultContent.SUBMISSION,
-                logs, sampleVideoId, true);
+                logs, guestAccessibleVideoIds, true);
     }
 
     private ExamResultResponse toResultResponse(
             Submission submission, ExamSnapshot exam, List<SubmissionAnswer> answers,
             ResultContent content, List<ExamResultResponse.PartTimeLogDto> logs,
-            UUID sampleVideoId, boolean guest) {
+            Set<UUID> guestAccessibleVideoIds, boolean guest) {
         return ExamResultAssembler.assemble(submission, resolvedPartOrder(submission, exam), exam,
-                answers, content, logs, sampleVideoId, guest);
+                answers, content, logs, guestAccessibleVideoIds, guest);
     }
 
     private ExamSnapshot ensureSnapshot(Submission submission) {
@@ -584,37 +609,52 @@ public class SubmissionService {
 
         long elapsedSeconds = Math.max(0L,
                 Duration.between(submission.getActivePartStartedAt(), endedAt).getSeconds());
-        if (elapsedSeconds > 0) {
-            PartTimeLog log = partTimeLogRepository
-                    .findBySubmissionIdAndPartId(submission.getId(), submission.getActivePart().getId())
-                    .orElseGet(() -> PartTimeLog.builder()
-                            .submission(submission)
-                            .part(submission.getActivePart())
-                            .timeSpentSeconds(0)
-                            .build());
-            int currentSeconds = Optional.ofNullable(log.getTimeSpentSeconds()).orElse(0);
-            log.setTimeSpentSeconds(Math.addExact(currentSeconds, Math.toIntExact(elapsedSeconds)));
-            partTimeLogRepository.save(log);
-        }
+        PartTimeLog log = partTimeLogRepository
+                .findBySubmissionIdAndPartId(submission.getId(), submission.getActivePart().getId())
+                .orElseGet(() -> PartTimeLog.builder()
+                        .submission(submission)
+                        .part(submission.getActivePart())
+                        .build());
+        int currentSeconds = Optional.ofNullable(log.getTimeSpentSeconds()).orElse(0);
+        log.setTimeSpentSeconds(Math.addExact(currentSeconds, Math.toIntExact(elapsedSeconds)));
+        partTimeLogRepository.save(log);
         submission.setActivePart(null);
         submission.setActivePartStartedAt(null);
     }
 
     private List<ExamResultResponse.PartTimeLogDto> partTimeLogs(
-            Submission submission, List<UUID> partOrder) {
+            Submission submission, ExamSnapshot exam, List<UUID> partOrder,
+            LocalDateTime now, boolean includeActivePart) {
         List<PartTimeLog> logs = new ArrayList<>(
                 partTimeLogRepository.findBySubmissionIdWithPart(submission.getId()));
-        if (partOrder != null) {
-            Map<UUID, Integer> indexes = PartOrder.indexes(partOrder);
-            logs.sort(Comparator.comparing(log ->
-                    indexes.getOrDefault(log.getPart().getId(), Integer.MAX_VALUE)));
+        Map<UUID, PartTimeLog> logsByPartId = logs.stream()
+                .collect(Collectors.toMap(log -> log.getPart().getId(), Function.identity()));
+        Map<UUID, Integer> elapsedByPartId = new HashMap<>();
+        logs.forEach(log -> elapsedByPartId.put(
+                log.getPart().getId(), log.getTimeSpentSeconds()));
+        if (includeActivePart && submission.getActivePart() != null
+                && submission.getActivePartStartedAt() != null) {
+            UUID activePartId = submission.getActivePart().getId();
+            int elapsed = Math.toIntExact(Math.max(0,
+                    Duration.between(submission.getActivePartStartedAt(), now).getSeconds()));
+            int savedSeconds = Optional.ofNullable(elapsedByPartId.get(activePartId)).orElse(0);
+            elapsedByPartId.put(activePartId, Math.addExact(savedSeconds, elapsed));
         }
-        return logs.stream()
-                .map(log -> ExamResultResponse.PartTimeLogDto.builder()
-                        .partId(log.getPart().getId())
-                        .partName(log.getPart().getPartName())
-                        .timeSpentSeconds(log.getTimeSpentSeconds())
-                        .build())
+        Map<UUID, ExamSnapshot.PartSnap> parts = exam.parts().stream()
+                .collect(Collectors.toMap(ExamSnapshot.PartSnap::id, Function.identity()));
+        Map<UUID, Integer> indexes = PartOrder.indexes(partOrder);
+        return partOrder.stream()
+                .map(partId -> {
+                    ExamSnapshot.PartSnap part = parts.get(partId);
+                    PartTimeLog log = logsByPartId.get(partId);
+                    return ExamResultResponse.PartTimeLogDto.builder()
+                            .partId(partId)
+                            .partName(part == null ? null : part.name())
+                            .displayIndex(indexes.get(partId))
+                            .timeSpentSeconds(elapsedByPartId.get(partId))
+                            .recommendedTimeSeconds(log == null ? null : log.getRecommendedTimeSeconds())
+                            .build();
+                })
                 .toList();
     }
 }

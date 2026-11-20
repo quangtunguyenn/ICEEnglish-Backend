@@ -30,10 +30,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -164,8 +166,7 @@ public class ExamService {
                     .partName(p.getPartName().trim())
                     .passageText(blankToNull(p.getPassageText()))
                     .translate(blankToNull(p.getTranslate()))
-                    .recommendedTimeSeconds(
-                            PartType.parse(p.getPartType()).getStandardTimeSeconds())
+                    .recommendedTimeSeconds(p.getRecommendedTimeSeconds())
                     .orderIndex(p.getOrderIndex())
                     .fixedPosition(Boolean.TRUE.equals(p.getFixedPosition()))
                     .shuffleGroup(p.getShuffleGroup() == null ? null : p.getShuffleGroup().trim())
@@ -447,6 +448,25 @@ public class ExamService {
         cacheRegistry.evictAllAfterCommit();
     }
 
+    @Transactional
+    public int deleteAllDrafts() {
+        List<Exam> drafts = examRepository.findByStatusOrderByCreatedAtDesc(ExamStatus.DRAFT);
+        examRepository.deleteAll(drafts);
+        if (!drafts.isEmpty()) {
+            cacheRegistry.evictAllAfterCommit();
+        }
+        return drafts.size();
+    }
+
+    @Transactional
+    public void guestAccess(UUID examId, Boolean guestAccessible) {
+        if (guestAccessible == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "guestAccessible là bắt buộc.");
+        }
+        findExam(examId).setGuestAccessible(guestAccessible);
+        cacheRegistry.evictAllAfterCommit();
+    }
+
     @Transactional(readOnly = true)
     public AnswersRevealedResponse getAnswersRevealed(UUID examId) {
         Exam exam = findExam(examId);
@@ -514,7 +534,7 @@ public class ExamService {
                         .partName(part.getPartName())
                         .partType(part.getPartType())
                         .passageText(part.getPassageText())
-                        .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
+                        .recommendedTimeSeconds(part.getRecommendedTimeSeconds())
                         .orderIndex(part.getOrderIndex())
                         .fixedPosition(part.isFixedPosition())
                         .shuffleGroup(part.getShuffleGroup())
@@ -550,7 +570,7 @@ public class ExamService {
                         .translate(part.getPartType() == PartType.READING_8
                                 || part.getPartType() == PartType.READING_10
                                 ? part.getTranslate() : null)
-                        .recommendedTimeSeconds(part.getPartType().getStandardTimeSeconds())
+                        .recommendedTimeSeconds(part.getRecommendedTimeSeconds())
                         .orderIndex(part.getOrderIndex())
                         .fixedPosition(part.isFixedPosition())
                         .shuffleGroup(part.getShuffleGroup())
